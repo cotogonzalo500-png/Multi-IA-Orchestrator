@@ -13,3 +13,7 @@ Cuando el repositorio esté publicado, usá el reporte privado de vulnerabilidad
 ## Qué no cubre
 - La seguridad de los CLIs de terceros y de las cuentas de cada usuario.
 - Los límites de uso y las condiciones de cada proveedor, que siguen vigentes.
+
+## Scripts that write outside the plugin folder / Scripts que escriben fuera de la carpeta del plugin
+Only when you run them explicitly: `scripts\rollback-estable.ps1` (rewrites your `~\.claude\plugins\installed_plugins.json` after making a backup copy and refreshes `~\.claude\multi-ia-estable`), `scripts\crear-accesos-reinicio.ps1` and `scripts\inicio-automatico.ps1` (desktop/startup shortcuts). Nothing runs automatically. / Solo si los ejecut�s vos: rollback-estable.ps1 (reescribe tu installed_plugins.json con copia previa), crear-accesos-reinicio.ps1 e inicio-automatico.ps1 (accesos). Nada corre solo.
+

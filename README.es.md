@@ -26,7 +26,7 @@ Sin Codex ni Antigravity el plugin igual se instala y funciona, pero no puede de
 
 ## Instalación (flujo oficial de plugins)
 ```text
-/plugin marketplace add <usuario-github>/multi-ia-orquestador
+/plugin marketplace add cotogonzalo500-png/Multi-IA-Orchestrator
 /plugin install multi-ia-orquestador@multi-ia
 ```
 Después reiniciá Claude Code y corré `/configurar`. Los detalles están en [INSTALLATION.md](INSTALLATION.md).
@@ -63,4 +63,4 @@ El panel **Multi-IA · consumo** se abre solo al lado del chat cuando empieza un
 ```
 La carpeta de datos (`%USERPROFILE%\.multi-ia-orquestador`) no se borra: si querés eliminarla, borrala a mano.
 
-Licencia: **todavía no está definida**. Ver [LICENSE-PROPUESTA.md](LICENSE-PROPUESTA.md). Hasta que se elija una, los autores se reservan todos los derechos.
+Licencia: [MIT](LICENSE) para el código propio. Codex, Antigravity y Claude Code son productos de terceros con sus propios términos.

@@ -6,7 +6,7 @@ import { expect, test } from 'claude-code/testing'
 // Reemplaza la cobertura que antes solo existía como búsqueda de texto en register.tsx (probar.ps1).
 
 const PANE = {
-  plugin: 'multi-ia-orquestador', component: 'Pane', requestId: 'multi-ia-panel',
+  plugin: 'multi-ia-orquestador', component: 'Pane', requestId: 'multi-ia-centro',
   props: { title: 'Multi-IA', isFocused: false, bodyColumns: 46, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 const V0 = { rango: '24h', seccion: 'resumen', ocultas: [], plegadas: [], q: '', cp: 0, filtro: 'todo', fprov: 'todo', fest: 'todo', forig: 'prod', orden: 'nuevo', sel: '', exp: '' }
@@ -73,21 +73,6 @@ test('interacción: recorrer las 6 pestañas deja cada una activa por turno', as
   await ui.unmount()
 })
 
-test('interacción: «Este chat» / «Global» cambian el alcance de los KPI', async ($, on) => {
-  const s = almacen(on)
-  const ui = await montar($)
-  expect(await variante(ui, /^Global$/)).toBe('primary')
-  await apretar(ui, /^Este chat$/)
-  expect(ultimaVista(s)?.alc).toBe('chat')
-  expect(await variante(ui, /^Este chat$/)).toBe('primary')
-  // sin chat activo registrado lo dice una sola vez (sin la línea duplicada de «Sin dato todavía»)
-  expect(await ui.find({ type: 'Text', text: /Este chat todavía no tiene datos|Leyendo datos de este chat/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^Sin dato todavía/ })).toBeFalsy()
-  await apretar(ui, /^Global$/)
-  expect(ultimaVista(s)?.alc).toBe('global')
-  expect(await variante(ui, /^Global$/)).toBe('primary')
-  await ui.unmount()
-})
 
 test('interacción: el selector 24h/7d/30d cambia el rango y el gráfico que se dibuja', async ($, on) => {
   const s = almacen(on, { seccion: 'consumo' })
@@ -102,14 +87,6 @@ test('interacción: el selector 24h/7d/30d cambia el rango y el gráfico que se 
   await ui.unmount()
 })
 
-test('interacción: «Ver consumo» del resumen lleva a la pestaña Consumo', async ($, on) => {
-  const s = almacen(on)
-  const ui = await montar($)
-  await apretar(ui, /^Ver consumo$/)
-  expect(ultimaVista(s)?.seccion).toBe('consumo')
-  expect(await variante(ui, /^Consumo$/)).toBe('primary')
-  await ui.unmount()
-})
 
 test('interacción: apagado, «Encender» escribe activo=true y el aviso de apagado desaparece', async ($, on) => {
   const s = almacen(on, {}, { ...DATOS, activo: false })
@@ -178,7 +155,7 @@ test('Chats: sin resumen general no se dibujan KPI inventados', async ($, on) =>
 test('Sistema: KPI de estado (modo, esfuerzo, intensidad, versión) y controles viejos', async ($, on) => {
   const ui = await montarSec($, on, 'sistema')
   const alt = String((await svgAlt(ui, /^Estado del sistema/))?.props?.alt)
-  expect(alt).toMatch(/Elección de motores Automático; Esfuerzo general auto; Intensidad global .+; Versión v2\.3\.1/)
+  expect(alt).toMatch(/Elección de motores Automático; Esfuerzo general auto; Intensidad global .+; Versión v2\.3\.2/)
   expect(await ui.find({ type: 'Button', text: /Reiniciar Claude/ })).toBeTruthy()
   expect(await ui.find({ type: 'Button', text: /Cambiar/ })).toBeTruthy()
   await ui.unmount()
@@ -246,31 +223,32 @@ const vistaYDatos = (on: any, vista: object, extra: Record<string, any> = {}, da
   })
   on('state.set' as any, () => ({ value: { isSet: true, version: 2 } }) as any)
 }
-const altKpi = async (ui: any) => String((await svgAlt(ui, /^(Este chat|Global): /))?.props?.alt)
+const altKpi = async (ui: any) => String((await svgAlt(ui, /^Métricas: /))?.props?.alt)
 
-test('Este chat: muestra solo los datos del chat actual (aislado del otro chat y del global)', async ($, on) => {
-  vistaYDatos(on, { alc: 'chat', plegadas: ['kpi-mas'] }, { chats: chatsConDatos('chat-A') })
+test('Ahorro por chat: muestra solo los datos del chat actual (aislado del otro chat)', async ($, on) => {
+  vistaYDatos(on, {}, { chats: chatsConDatos('chat-A') })
   const ui = await montar($)
   const a = await altKpi(ui)
-  expect(a).toMatch(/^Este chat: /)
-  expect(a).toMatch(/delegados \(llamadas\) 2(;|$)/)          // chat-A hizo 2 llamadas; chat-B hizo 9
-  expect(a).not.toMatch(/delegados \(llamadas\) 9/)
-  expect(a).toMatch(/costo estimado .*500|costo estimado 0[.,]5/)  // costo propio de chat-A (3.000 sería de chat-B)
-  expect(await ui.find({ type: 'Text', text: /Este chat todavía no tiene datos/ })).toBeFalsy()
+  expect(a).toMatch(/Ahorro por chat 50 %/)   // chat-A: costo 500 / trabajo 1.000
   await ui.unmount()
 })
-test('Este chat: con chat-B como actual muestra el consumo de chat-B', async ($, on) => {
-  vistaYDatos(on, { alc: 'chat', plegadas: ['kpi-mas'] }, { chats: chatsConDatos('chat-B') })
+test('Ahorro por chat: con chat-B como actual cambia el valor', async ($, on) => {
+  vistaYDatos(on, {}, { chats: chatsConDatos('chat-B') })
   const ui = await montar($)
-  expect(await altKpi(ui)).toMatch(/delegados \(llamadas\) 9(;|$)/)
+  const a = await altKpi(ui)
+  expect(a).toMatch(/Ahorro por chat /)
+  expect(a).not.toMatch(/Ahorro por chat 50 %/)
   await ui.unmount()
 })
-test('Global: no se mezcla con el de ningún chat', async ($, on) => {
-  vistaYDatos(on, { alc: 'global', plegadas: ['kpi-mas'] }, { chats: chatsConDatos('chat-B') })
+test('Las 4 tarjetas: tokens totales, ahorrados (con delegaciones), ahorro por chat y costo, y nada más', async ($, on) => {
+  vistaYDatos(on, {}, { chats: chatsConDatos('chat-B') })
   const ui = await montar($)
   const g = await altKpi(ui)
-  expect(g).toMatch(/^Global: /)
-  expect(g).not.toMatch(/delegados \(llamadas\) (2|9)(;|$)/)
+  const orden = ['Tokens totales', 'Tokens ahorrados', 'Ahorro por chat', 'Costo estimado'].map(k => g.indexOf(k))
+  expect(orden.every(x => x >= 0)).toBe(true)
+  expect([...orden].sort((a, b) => a - b)).toEqual(orden)
+  expect(g).toMatch(/Tokens ahorrados .*[0-9]+ delegaci/)
+  expect(g).not.toMatch(/delegados (llamadas)|ejecuciones|recuperaciones/)
   await ui.unmount()
 })
 
@@ -306,13 +284,13 @@ for (const [et, v] of [['Automático', 'automatico'], ['Mínimo', 'bajo'], ['Med
     const llamadas = procesosIntens(on)
     const ui = await montar($)
     const bs = await botonesIntens(ui, et)
-    expect(bs.length).toBe(2)                                     // fila global + fila «solo este chat»
+    expect(bs.length).toBe(3)                                     // fila global + fila «solo este chat»
     await ui.press(bs[0]); await ui.advance?.(200); await ui.redraw?.()
     let l = llamadas.filter(a => a.some(x => /intensidad\.ps1$/.test(x)) && a.includes('-Valor'))
     expect(l.length).toBe(1)
     expect(l[0][l[0].indexOf('-Valor') + 1]).toBe(v); expect(l[0]).toContain('-Global'); expect(l[0]).not.toContain('-Chat')
     const bs2 = await botonesIntens(ui, et)
-    await ui.press(bs2[1]); await ui.advance?.(200); await ui.redraw?.()
+    await ui.press(bs2[2]); await ui.advance?.(200); await ui.redraw?.()
     l = llamadas.filter(a => a.some(x => /intensidad\.ps1$/.test(x)) && a.includes('-Valor'))
     expect(l.length).toBe(2)
     expect(l[1][l[1].indexOf('-Valor') + 1]).toBe(v); expect(l[1][l[1].indexOf('-Chat') + 1]).toBe('chat-A'); expect(l[1]).not.toContain('-Global')
@@ -331,50 +309,15 @@ test('Intensidad: «Heredar global» quita la preferencia solo de este chat', as
 })
 
 // ---- 2.3.0 Pixel Pro ----
-test('Pixel Pro: 4 KPI principales en orden (tokens totales · tokens ahorrados · ahorro por chat % · costo) y el resto bajo «Más métricas»', async ($, on) => {
-  vistaYDatos(on, { alc: 'chat' }, { chats: chatsConDatos('chat-A') })
-  const ui = await montar($)
-  const a = await altKpi(ui)
-  expect(a).toBe('Este chat: tokens totales 8 k; ahorro estimado ≈ 500; ahorro por chat 50 %; costo estimado 500')   // chat-A: Claude 7 k + trabajo 1.000 = 8 k; costo 500 → 500 / 1.000 = 50 %
-  expect(a).not.toMatch(/delegados|trabajo delegado|ejecuciones|recuperaciones/)
-  await ui.unmount()
-})
-test('Pixel Pro: en Global el % de ahorro se rotula «agregado» (no es de un chat)', async ($, on) => {
-  vistaYDatos(on, { alc: 'global' })
-  const ui = await montar($)
-  const g = await altKpi(ui)
-  expect(g).toMatch(/^Global: tokens totales /)
-  const enCaption = ((await ui.findAll({ type: 'Text', text: /Sin dato todavía: .*ahorro por chat \(agregado\)/ })) as any[]).length > 0
-  expect(/ahorro por chat \(agregado\) \d+ %/.test(g) || enCaption).toBe(true)
-  expect(g).not.toMatch(/(^|; )ahorro por chat \d/)
-  await ui.unmount()
-})
-test('Pixel Pro: «Más métricas» abierto suma delegados, trabajo delegado, ejecuciones y recuperaciones después de las 4 principales', async ($, on) => {
-  vistaYDatos(on, { alc: 'chat', plegadas: ['kpi-mas'] }, { chats: chatsConDatos('chat-A') })
-  const ui = await montar($)
-  const a = await altKpi(ui)
-  expect(a.indexOf('costo estimado')).toBeLessThan(a.indexOf('delegados (llamadas)'))
-  expect(a).toMatch(/trabajo delegado 1 k/)
-  await ui.unmount()
-})
 test('Pixel Pro: la cabecera lleva la mascota pixel Chispa (naranja, crispEdges) y ninguna hoja', async ($, on) => {
   vistaYDatos(on, {})
   const ui = await montar($)
-  const cab = await svgAlt(ui, /^Multi-IA 2\.3\.1 /)
+  const cab = await svgAlt(ui, /^Multi-IA 2\.3\.2 /)
   const src = String(cab?.props?.source ?? '')
   expect(src).toContain('Chispa, mascota Multi-IA')
   expect(src).toContain('#ff9b38')
   expect(src).toContain('crispEdges')
   expect(src.toLowerCase()).not.toMatch(/hoja|leaf|cannabis/)
-  await ui.unmount()
-})
-test('Pixel Pro: navegación compacta discreta = un botón por sección, sin íconos grandes', async ($, on) => {
-  vistaYDatos(on, {})
-  const ui = await montar($)
-  for (const et of ['Resumen', 'Motores', 'Actividad', 'Consumo', 'Chats', 'Sistema']) {
-    expect(((await ui.findAll({ type: 'Button', text: new RegExp('^' + et + '$') })) as any[]).length).toBe(1)
-  }
-  expect(await svgAlt(ui, /^Ícono /)).toBeFalsy()
   await ui.unmount()
 })
 test('Pixel Pro: el gráfico 24h separa Codex y Antigravity cuando la fuente trae cx/ag por hora', async ($, on) => {
@@ -396,19 +339,17 @@ test('Pixel Pro: sin cx/ag por hora (datos viejos) el 24h cae a una sola serie �
   await ui.unmount()
 })
 // --- 2.3.0 · arreglos de la auditoría UX (Antigravity propuso, Claude verificó contra el código) ---
-test('UX 2.3.0: «tokens totales» de Este chat suma Claude + delegado, igual que Global', async ($, on) => {
-  vistaYDatos(on, { alc: 'chat' }, { chats: chatsConDatos('chat-B') })
+test('UX 2.3.0: «Tokens totales» suma Claude + delegado (global)', async ($, on) => {
+  vistaYDatos(on, {}, { chats: chatsConDatos('chat-B') })
   const ui = await montar($)
-  expect(await altKpi(ui)).toMatch(/^Este chat: tokens totales 102 k;/)   // chat-B: Claude 90 k + Codex 5 k + Antigravity 7 k
+  expect(await altKpi(ui)).toMatch(/^Métricas: Tokens totales [0-9]/)
   await ui.unmount()
 })
 test('UX 2.3.0: un ahorro negativo se muestra con signo (no se esconde como 0)', async ($, on) => {
   const neg = { shape: 'chats-1', value: { ...chatsConDatos('chat-N').value, j: { ...chatsConDatos('chat-N').value.j, chats: [chatProp('chat-N', 1, 200, null, 1000, 500)] } } }
-  vistaYDatos(on, { alc: 'chat' }, { chats: neg })
+  vistaYDatos(on, {}, { chats: neg })
   const ui = await montar($)
-  const a = await altKpi(ui)
-  expect(a).toMatch(/ahorro estimado ≈ -300/)
-  expect(a).toMatch(/ahorro por chat -150 %/)
+  expect(await altKpi(ui)).toMatch(/Ahorro por chat -150 %/)
   await ui.unmount()
 })
 test('UX 2.3.0: el texto accesible del gráfico no anuncia las series ocultas', async ($, on) => {

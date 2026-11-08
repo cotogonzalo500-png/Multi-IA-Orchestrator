@@ -26,7 +26,7 @@ Without Codex and without Antigravity the plugin still installs and works, but i
 
 ## Install (official plugin flow)
 ```text
-/plugin marketplace add <github-user>/multi-ia-orquestador
+/plugin marketplace add cotogonzalo500-png/Multi-IA-Orchestrator
 /plugin install multi-ia-orquestador@multi-ia
 ```
 Then restart Claude Code and run `/configurar`. Details are in [INSTALLATION.md](INSTALLATION.md) (bilingual ES/EN headings; body in Spanish).
@@ -68,4 +68,4 @@ Your data folder (`%USERPROFILE%\.multi-ia-orquestador`) is left in place. Delet
 
 > These documents are currently written in Spanish only (marked **(ES)**). English translations are welcome as contributions.
 
-License: **not decided yet.** See [LICENSE-PROPUESTA.md](LICENSE-PROPUESTA.md) (ES). Until a license is chosen, all rights are reserved by the authors.
+License: [MIT](LICENSE) for the original code. Codex, Antigravity and Claude Code are third-party products under their own terms.

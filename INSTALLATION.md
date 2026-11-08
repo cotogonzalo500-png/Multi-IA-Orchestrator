@@ -9,12 +9,12 @@
 ## 2. Instalar el plugin
 Desde Claude Code:
 ```text
-/plugin marketplace add <usuario-github>/multi-ia-orquestador
+/plugin marketplace add cotogonzalo500-png/Multi-IA-Orchestrator
 /plugin install multi-ia-orquestador@multi-ia
 ```
 O desde una terminal:
 ```bash
-claude plugin marketplace add <usuario-github>/multi-ia-orquestador
+claude plugin marketplace add cotogonzalo500-png/Multi-IA-Orchestrator
 claude plugin install multi-ia-orquestador@multi-ia
 ```
 Para probar desde una copia local (sin GitHub): `claude plugin marketplace add "C:\ruta\a\multi-ia-orquestador"` (con comillas si la ruta tiene espacios).

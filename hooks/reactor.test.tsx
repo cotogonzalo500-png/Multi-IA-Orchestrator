@@ -43,6 +43,20 @@ test('reactor: Disponible → Analizando → Seleccionando → Delegando → Eje
   eventos = [ev('seleccionado'), ev('inicio'), ev('confirmado')]
   expect(await reactor()).toContain('Ejecutando')
 
+})
+test('reactor: Completado y Error tras la ejecución', async ($, on) => {
+  let eventos: any[] = []
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('state.get', (_, e) => e.key === 'vista'
+    ? { value: { value: { shape: 'vista-2', value: V2 }, version: 1, shape: 'vista-2' } }
+    : { value: { value: { shape: 'datos-8', value: { modo: 'automatico', calidad: 'equilibrada', tarjetas: [], eventos } }, version: 1, shape: 'datos-8' } })
+  const reactor = async () => {
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const r: any = ((await ui.findAll({ type: 'Svg' })) as any[]).find(n => /^Reactor: /.test(String(n.props?.alt ?? '')))
+    await ui.unmount()
+    return String(r?.props?.alt ?? '')
+  }
+  const ev = (t: string, extra: object = {}) => ({ f: new Date().toISOString(), t, d: 'codex', x: 'gpt-6.1-sol', m: '', k: 'codigo', tok: 0, s: 0, i: 'ej-test-1', ...extra })
   // 6. Terminó bien
   eventos = [ev('seleccionado'), ev('inicio'), ev('confirmado'), ev('recibido'), ev('fin', { tok: 1200, s: 30 })]
   expect(await reactor()).toContain('Completado, sin verificar')   // 2.3.0

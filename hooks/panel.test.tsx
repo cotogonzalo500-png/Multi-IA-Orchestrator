@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 const PANE = {
-  plugin: 'multi-ia-orquestador', component: 'Pane', requestId: 'multi-ia-panel',
+  plugin: 'multi-ia-orquestador', component: 'Pane', requestId: 'multi-ia-centro',
   props: { title: 'Multi-IA', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
@@ -37,6 +37,9 @@ test('el panel dibuja una tarjeta por IA con su porcentaje', async ($, on) => {
   const textoDe = prepararTarjetas($, on)
   expect(await textoDe('motores', 'Text', /Codex/)).toContain('Codex')
   expect(await textoDe('motores', 'Text', /85%/)).toContain('85%')
+})
+test('el panel dibuja una tarjeta por IA con su porcentaje (2)', async ($, on) => {
+  const textoDe = prepararTarjetas($, on)
   expect(await textoDe('motores', 'Text', /SESIÓN 5 H/)).toContain('SESIÓN 5 H')
   expect(await textoDe('motores', 'Text', /SEMANAL 7 DÍAS/)).toContain('SEMANAL')
   expect(await textoDe('motores', 'Text', /% libre/)).toContain('libre')
@@ -50,13 +53,16 @@ test('el panel muestra señal de vida, consumo, sistema y actividad por sección
   expect(await textoDe('resumen', 'Text', /conectando|en vivo|actualizando|sin señal/)).toContain('●')
   expect(await textoDe('consumo', 'Text', /en esta sesión/)).toContain('1 delegación')
   expect(await textoDe('consumo', 'Text', /ahorrados en total/)).toContain('2 delegaciones')
+})
+test('el panel muestra señal de vida, consumo, sistema y actividad por sección (2)', async ($, on) => {
+  const textoDe = prepararTarjetas($, on)
   // el interruptor se mudó a Sistema (compacto) y al menú lateral (Centro)
   expect(await textoDe('sistema', 'Button', /Encendido/)).toBeTruthy()
-  expect(await textoDe('resumen', 'Button', /Encendido/)).toBeUndefined()
-  expect(await textoDe('resumen', 'Svg', /tokens totales/)).toContain('tokens totales')
-  expect(await textoDe('resumen', 'Button', /Este chat/)).toBeTruthy()
-  expect(await textoDe('resumen', 'Button', /Global/)).toBeTruthy()
+  expect(await textoDe('resumen', 'Svg', /Tokens totales/)).toContain('Tokens totales')
   expect(await textoDe('motores', 'Text', /Última lectura exitosa/)).toContain('lectura')
+})
+test('el panel muestra señal de vida, consumo, sistema y actividad por sección (3)', async ($, on) => {
+  const textoDe = prepararTarjetas($, on)
   expect(await textoDe('actividad', 'Text', /resolvió solo/)).toContain('no delegó')
   expect(await textoDe('actividad', 'Text', /Por qué no/)).toContain('tarea chica')
   expect(await textoDe('actividad', 'Text', /Por qué:/)).toContain('tarea grande')
@@ -184,7 +190,7 @@ const sembrar = (on: any, vista: object = {}, datos: object = DATOS_V2) => {
 
 test('compacto: consola Svg de 146 px (≤160), modelo no verificable, estados y botón de historial', async ($, on) => {
   sembrar(on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, requestId: 'multi-ia-panel', surface: 'desktop' })
   const c = await svgAlt(ui, /Mini consola/)
   expect(c).toBeTruthy()
   expect(Number((c as any).props?.height ?? (c as any).height)).toBeLessThanOrEqual(160)
@@ -194,13 +200,14 @@ test('compacto: consola Svg de 146 px (≤160), modelo no verificable, estados y
   expect(alt).toContain('Completado, sin verificar')   // 2.3.0: exit 0 sin evaluación no se presenta como éxito verificado
   expect(alt).not.toContain('Terminó')
   expect(await ui.find({ type: 'Button', text: /Historial completo/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Button', text: /Expandir/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', text: /Ajustes/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', text: /Expandir/ })).toBeFalsy()
   await ui.unmount()
 })
 
 test('compacto: sin eventos la consola no crece y dice que no hay actividad', async ($, on) => {
   sembrar(on, {}, { modo: 'automatico', calidad: 'auto', tarjetas: [] })
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, requestId: 'multi-ia-panel', surface: 'desktop' })
   const c = await svgAlt(ui, /Mini consola/)
   expect(String((c as any).props?.alt ?? (c as any).alt)).toContain('sin actividad')
   await ui.unmount()

@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '2.3.1'
+const VERSION = '2.3.2'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -324,14 +324,27 @@ const tamValor = (v: string, ancho: number) => Math.max(11, Math.min(21, Math.fl
 // KPIs Crystal Pro: baldosa L1 con punto de acento, rótulo, valor grande y una línea de delta/contexto (d) si hay dato real.
 // Sin resplandores: el color vive en el punto y en el filete inferior.
 const H_KPI = 72, GAP_KPI = 10
+// Iconos pixel-art 7×7 propios (no son logos de terceros): '#' = píxel encendido.
+const pix = (g: string[], x: number, y: number, p: number, col: string) => g.map((r, j) => Array.from(r).map((c, i) => c === '#' ? '<rect x="' + (x + i * p) + '" y="' + (y + j * p) + '" width="' + p + '" height="' + p + '" fill="' + col + '"/>' : '').join('')).join('')
+const PIX: Record<string, string[]> = {
+  claude: ['...#...', '#..#..#', '.#.#.#.', '..###..', '.#.#.#.', '#..#..#', '...#...'],
+  codex: ['##.....', '.##....', '..##...', '.##....', '##.....', '.......', '....###'],
+  agy: ['...#...', '..#.#..', '..#.#..', '.#...#.', '.#####.', '#.....#', '#.....#'],
+  chip: ['.#.#.#.', '#######', '#.....#', '#.###.#', '#.....#', '#######', '.#.#.#.'],
+  rayo: ['....##.', '...##..', '..##...', '.#####.', '...##..', '..##...', '.##....'],
+  moneda: ['..###..', '.#...#.', '#..#..#', '#.###.#', '#..#..#', '.#...#.', '..###..'],
+  monedas: ['.#####.', '#.....#', '.#####.', '#.....#', '.#####.', '#.....#', '.#####.'],
+}
+const pixMotor = (ia: string) => PIX[ia.startsWith('Claude') ? 'claude' : ia.startsWith('Codex') ? 'codex' : 'agy']
 const hKpis = (n: number, cols: number) => { const rows = Math.max(1, Math.ceil(n / cols)); return rows * H_KPI + (rows - 1) * GAP_KPI }
-function svgKpis(W: number, cols: number, items: { v: string; r: string; c: string; d?: string; dc?: string }[]): string {
+function svgKpis(W: number, cols: number, items: { v: string; r: string; c: string; d?: string; dc?: string; ic?: string }[]): string {
   const gap = GAP_KPI, h = H_KPI, tw = (W - gap * (cols - 1)) / cols, H = hKpis(items.length, cols)
   const tiles = items.map((it, i) => {
     const x = (i % cols) * (tw + gap), y = Math.floor(i / cols) * (h + gap), id = uid('k')
     return vDefs(id, it.c) + vPieza(id, x, y, tw, h, T.rad.m, false)
       + '<circle cx="' + (x + 17) + '" cy="' + (y + 18) + '" r="3.4" fill="' + it.c + '"/>'
-      + '<text x="' + (x + 27) + '" y="' + (y + 21.5) + '" font-size="' + T.fs.chico + '" fill="' + T.tenue + '">' + esc(corta(it.r, Math.floor((tw - 36) / 5.6))) + '</text>'
+      + '<text x="' + (x + 27) + '" y="' + (y + 21.5) + '" font-size="' + T.fs.chico + '" fill="' + T.tenue + '">' + esc(corta(it.r, Math.floor((tw - (it.ic ? 62 : 36)) / 5.6))) + '</text>'
+      + (it.ic ? pix(PIX[it.ic], x + tw - 26, y + 9, 2.4, it.c) : '')
       + '<text x="' + (x + 13) + '" y="' + (y + 47) + '" font-size="' + tamValor(it.v, tw - 26) + '" font-weight="800" fill="#ffffff">' + esc(it.v) + '</text>'
       + (it.d ? '<text x="' + (x + 13) + '" y="' + (y + 62) + '" font-size="' + T.fs.mini + '" font-weight="600" fill="' + (it.dc || T.tenue) + '">' + esc(corta(it.d, Math.floor((tw - 26) / 5.2))) + '</text>' : '')
       + '<rect x="' + (x + T.rad.m) + '" y="' + (y + h - 2.5) + '" width="' + Math.max(0, tw - 2 * T.rad.m) + '" height="1.5" rx=".75" fill="' + it.c + '" fill-opacity=".5"/>'
@@ -498,7 +511,7 @@ function svgBarraCupo(W: number, p: number, color: string): string {
     + (w > 0 ? '<rect x="1" y="2" width="' + w + '" height="8" rx="4" fill="url(#' + k + ')"/><rect x="3" y="3.2" width="' + Math.max(0, w - 4) + '" height="2" rx="1" fill="#fff" fill-opacity=".3"/>' : '') + '</svg>')
 }
 // Terminal de vidrio: motor (color + glifo) · hora · evento · estado (pastilla) · detalle.
-type FilaT = { hora: string; c: string; a: string; tag: string; b?: string }
+type FilaT = { hora: string; c: string; a: string; tag: string; b?: string; ia?: string }
 function svgTerminal(W: number, titulo: string, filas: FilaT[], activos: string[], total: number, vacio: string): string {
   const rh = 42, top = 60, n = Math.max(1, filas.length), H = top + n * rh + 10, cap = Math.floor((W - 190) / 5.8), ci = uid('c')
   let o = SVG_AB(W, H, '<style>.pl{animation:pl 1.6s ease-in-out infinite}@keyframes pl{50%{opacity:.3}}@media (prefers-reduced-motion: reduce){.pl{animation:none!important}}</style>'
@@ -513,12 +526,12 @@ function svgTerminal(W: number, titulo: string, filas: FilaT[], activos: string[
   filas.forEach((f, i) => {
     const y = top + i * rh, tw = f.tag.length * 6.2 + 16, x0 = W > 500 ? 104 : 96, capF = Math.max(6, Math.floor((W - 14 - tw - 8 - x0) / 6.6))   // 2.3.0: el título cede lugar a la pastilla («Completado, sin verificar» es larga)
     o += '<rect x="10" y="' + (y + 2) + '" width="' + (W - 20) + '" height="' + (rh - 5) + '" rx="10" fill="' + f.c + '" fill-opacity="' + (i % 2 ? '.05' : '.09') + '" stroke="' + f.c + '" stroke-opacity=".16" stroke-width=".7"/>'
-      + '<rect x="14" y="' + (y + 8) + '" width="3.5" height="' + (rh - 17) + '" rx="1.75" fill="' + f.c + '"/>'
-      + '<text x="26" y="' + (y + 18) + '" font-size="10.5" font-family="Consolas,ui-monospace,monospace" fill="' + T.tenue + '">' + esc(f.hora) + '</text>'
+      + (f.ia ? pix(pixMotor(f.ia), 14, y + 8, 1.7, colorIa(f.ia)) : '<rect x="14" y="' + (y + 8) + '" width="3.5" height="' + (rh - 17) + '" rx="1.75" fill="' + f.c + '"/>')
+      + '<text x="32" y="' + (y + 18) + '" font-size="10.5" font-family="Consolas,ui-monospace,monospace" fill="' + T.tenue + '">' + esc(f.hora) + '</text>'
       + '<text x="' + x0 + '" y="' + (y + 18) + '" font-size="12" font-weight="600" fill="' + T.texto + '">' + esc(corta(f.a, Math.min(cap, capF))) + '</text>'
       + '<rect x="' + (W - 14 - tw) + '" y="' + (y + 7) + '" width="' + tw + '" height="16" rx="8" fill="' + f.c + '" fill-opacity=".2" stroke="' + f.c + '" stroke-opacity=".7" stroke-width=".9"/>'
       + '<text x="' + (W - 14 - tw / 2) + '" y="' + (y + 18.5) + '" font-size="10" font-weight="700" text-anchor="middle" fill="' + f.c + '">' + esc(f.tag) + '</text>'
-      + (f.b ? '<text x="26" y="' + (y + 33) + '" font-size="10.5" fill="' + T.tenue + '">' + esc(corta(f.b, Math.floor((W - 50) / 5.4))) + '</text>' : '')
+      + (f.b ? '<text x="32" y="' + (y + 33) + '" font-size="10.5" fill="' + T.tenue + '">' + esc(corta(f.b, Math.floor((W - 56) / 5.4))) + '</text>' : '')
   })
   return o + '</svg>'
 }
@@ -1190,9 +1203,9 @@ export const register: Register = on => {
     const vistaSet = (patch: Partial<Vista>) => void update($, vistaA, v => ({ ...v, ...patch }))
     // ---------- KPI Crystal Pro: ESTE CHAT / GLOBAL. Sin valores demo; el trabajo delegado NO se presenta como ahorro.
     const alc = vista.alc === 'chat' ? 'chat' : 'global'
-    if (alc === 'chat' && !ch.j && !ch.leyendo && !ch.err && !leyendoChats) void cargarChats($)
+    if (((!ch.j && !ch.err) || (ch.j && Date.now() - ch.t > 90000)) && !ch.leyendo && !leyendoChats) void cargarChats($)   // 2.3.1: el KPI «Ahorro por chat» siempre necesita el chat actual
     const chAct = (ch.j?.chats ?? []).find(c => c.id_chat === ch.j?.chat_actual) ?? null
-    const kpiItems = (() => {
+    const kpiDe = (alc: 'chat' | 'global') => {
       const nd = 'No determinable'
       if (alc === 'chat') {
         const c = chAct
@@ -1224,35 +1237,21 @@ export const register: Register = on => {
         { v: conCosto && deleg > 0 ? Math.round(netoK * 100 / deleg) + ' %' : nd, r: 'ahorro por chat (agregado)', c: T.ahorro },
         { v: ef ? String(ef.fallas_recuperadas) : 's/d', r: 'recuperaciones', c: T.magenta },
       ]
-    })()
-    // Estado vacío discreto: «—» en lugar de «s/d» llenando tarjetas. Compacto: 2 KPI principales + resto bajo «Más métricas».
-    const kpiVis = kpiItems.map(k => ({ ...k, v: k.v === 's/d' ? '—' : k.v }))
-    const masAbierto = vista.plegadas.includes('kpi-mas')
-    // 2.3.0 Pixel Pro: Tokens totales · Tokens ahorrados · Ahorro por chat % · Costo; «Más métricas» suma delegados, trabajo delegado, ejecuciones y recuperaciones.
-    const kpiOrden = [kpiVis[0], kpiVis[4], kpiVis[6], kpiVis[3], ...(masAbierto ? [kpiVis[1], kpiVis[2], kpiVis[5], kpiVis[7]] : [])]
-    // Solo se dibujan como tarjeta los KPI con dato; los vacíos van juntos en una línea («Sin dato todavía: …»).
-    const conDato = (k: { v: string }) => k.v !== '—' && k.v !== 'No determinable'
-    const kpiMostrar = kpiOrden.filter(conDato).map(k => ({ ...k, d: k.r === 'ahorro estimado' ? 'tokens ahorrados · delegado − coordinación' : k.r.startsWith('ahorro por chat') ? 'ahorro ÷ trabajo delegado (estimado)' : k.r === 'costo estimado' ? 'coordinar a Claude' : k.r === 'trabajo delegado' ? 'no es ahorro' : undefined }))
-    const kpiFaltan = kpiOrden.filter(k => !conDato(k)).map(k => k.r)
-    // Centro: reactor y KPI 2×2 lado a lado (cada uno ~mitad del ancho útil); compacto: ancho completo, 2 columnas.
+    }
+    const kG = kpiDe('global'), kC = kpiDe('chat')
+    // 2.3.1: cuatro tarjetas fijas (2×2). Global = registro del plugin; «Ahorro por chat» = solo la conversación actual. Delegado ≠ ahorro: el ahorro es delegado − costo de coordinar (estimado).
+    const sinD = (v: string) => v === 's/d' || v === '—'
+    const nDel = d.deleg_n ?? 0
+    const kpiCuatro = [
+      { v: sinD(kG[0].v) ? 'Sin datos' : kG[0].v, r: 'Tokens totales', c: T.violeta, ic: 'chip', d: 'Claude + delegado (global)' },
+      { v: sinD(kG[4].v) ? 'Sin datos' : kG[4].v, r: 'Tokens ahorrados', c: T.okSuave, ic: 'rayo', d: nDel + (nDel === 1 ? ' delegación' : ' delegaciones') },
+      { v: sinD(kC[6].v) ? 'Sin datos' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: 'este chat · estimado' },
+      { v: sinD(kG[3].v) ? 'Sin datos' : kG[3].v, r: 'Costo estimado', c: T.ambar, ic: 'monedas', d: 'tokens de Claude (coordinar)' },
+    ]
     const kpiCols = 2, mitad = centro ? Math.floor(anchoU * 0.49) : anchoU
     const nDeleg24 = eventos.filter(v => v.t === 'fin' && Date.now() - msEv(v.f) < 86400000).length
     const motoresVivos = Array.from(new Set(nombresActivos))
-    const resumen = (
-      <Box flexDirection="column" gap="xs" width="100%">
-        <Box flexDirection="row" gap="xs" alignItems="center" flexWrap="wrap">
-          {/* Control segmentado: dos botones pegados en una bandeja; el activo es el primario. */}
-          <Box flexDirection="row" gap="xs" paddingX="xs" borderStyle="round" borderColor={T.borde} backgroundColor={T.sVidrio}>
-            {[['chat', 'Este chat'], ['global', 'Global']].map(([k, et]) => <Button key={'kpi-' + k} variant={alc === k ? 'primary' : 'secondary'} onPress={() => vistaSet({ alc: k as 'chat' | 'global' })}>{et}</Button>)}
-          </Box>
-          {<Button variant="secondary" onPress={() => vistaSet({ plegadas: masAbierto ? vista.plegadas.filter(x => x !== 'kpi-mas') : [...vista.plegadas, 'kpi-mas'] })}>{masAbierto ? 'Menos métricas' : 'Más métricas'}</Button>}
-        </Box>
-        {alc === 'chat' && !chAct && <Text size="caption" dimColor wrap="wrap">{ch.leyendo ? 'Leyendo datos de este chat…' : 'Este chat todavía no tiene datos registrados.'}</Text>}
-        {kpiMostrar.length > 0 && svg(svgKpis(mitad, kpiCols, kpiMostrar), (alc === 'chat' ? 'Este chat: ' : 'Global: ') + kpiMostrar.map(k => k.r + ' ' + k.v).join('; '), mitad, hKpis(kpiMostrar.length, kpiCols))}
-        {kpiFaltan.length > 0 && !(alc === 'chat' && !chAct) && <Text size="caption" dimColor wrap="wrap">{'Sin dato todavía: ' + kpiFaltan.join(' · ')}</Text>}
-        {masAbierto && <Text size="caption" dimColor wrap="wrap">Trabajo delegado = tokens que hicieron otras IA; no es ahorro. Ahorro = delegado − costo de coordinar (estimado); «No determinable» si falta algún dato.</Text>}
-      </Box>
-    )
+    const resumen = svg(svgKpis(mitad, kpiCols, kpiCuatro), 'Métricas: ' + kpiCuatro.map(k => k.r + ' ' + k.v + (k.d ? ' (' + k.d + ')' : '')).join('; '), mitad, hKpis(4, kpiCols))
     const abrirCentro = (sec?: string) => { if (sec) vistaSet({ seccion: sec }); void $.ui.open({ id: PANE_CC, title: TITULO_CC }) }
 
     // Gráfico: 24 h por hora (Claude estimado / delegado real) y 7 d / 30 d con la serie diaria REAL de uso.jsonl (nada inventado).
@@ -1310,20 +1309,29 @@ export const register: Register = on => {
     const anchoCab = centro ? T.anchoCabExp : anchoU
     const cabecera = svg(svgCabecera(anchoCab, encendido, sinSenal),
       'Multi-IA ' + VERSION + ' · Orquestador multi-motor inteligente · ' + (!encendido ? 'Apagado' : sinSenal ? 'Sin señal' : 'Encendido') + ' · ' + estado.t.replace(/^● /, '') + (chatIdAct ? ' · chat ' + chatIdAct.slice(0, 8) : ''), anchoCab, 58)
+    const elegirInt = async (v: string) => {
+      await update($, intensA, x => ({ ...x, g: v, v: x.origen === 'chat' ? x.v : v }))
+      await cambiarIntens($, v, 'global', chatIdAct)
+      if (itn.origen === 'chat' && chatIdAct) await cambiarIntens($, v, 'chat', chatIdAct)
+    }
     const tarjetaReactor = (
       <Box flexDirection="column" gap="xs">
         {svg(svgTarjetaReactor(mitad, reactor.t, reactor.c, encendido, trabajando, motoresVivos, nDeleg24, modoNombre + ' · intensidad ' + intensNombre),
           'Reactor: ' + reactor.t + ' · Reactor central · modo efectivo ' + modoNombre.toLowerCase() + ' · intensidad ' + intensNombre + ' · ' + (motoresVivos.length ? 'activos: ' + motoresVivos.join(', ') : 'listo para delegar') + ' · ' + nDeleg24 + ' delegaciones (24 h)', mitad, H_REACTOR)}
+        {/* 2.3.1: selector de intensidad dentro de la tarjeta (sin bordes extra). Resalta la intensidad EFECTIVA; al elegir guarda la global y, si este chat tenía una propia, también la del chat. */}
         <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-          {vidrioBtn(true, T.violeta, <Button variant="primary" onPress={() => vistaSet({ seccion: 'sistema' })}>{'⚡ ' + modoNombre + ' ▾'}</Button>, 'modo-ef')}
-          {centro
-            ? <Button variant="secondary" onPress={() => void $.ui.close({ id: PANE_CC })}>⤡ Volver a compacto</Button>
-            : <Button variant="secondary" onPress={() => abrirCentro()}>⤢ Expandir</Button>}
+          {INT_OPC.map(([v, n]) => <Button key={'int-' + v} variant={itn.v === v ? 'primary' : 'secondary'} onPress={() => void elegirInt(v)}>{n}</Button>)}
+          {centro && <Button variant="secondary" onPress={() => void $.ui.close({ id: PANE_CC })}>⤡ Volver a compacto</Button>}
         </Box>
       </Box>
     )
     // Pie: señal de vida del enlace (● en vivo / conectando / sin señal) y última lectura de cupos.
-    const pie = <Text size="caption" dimColor wrap="wrap">{estado.t + (hora ? ' · Última lectura de cupos: ' + hora : '')}</Text>
+    const pie = (
+      <Box flexDirection="row" gap="xs" alignItems="center" flexWrap="wrap">
+        <Text size="caption" dimColor wrap="wrap">{estado.t + (hora ? ' · cupos: ' + hora : '')}</Text>
+        {!centro && <Button variant="secondary" onPress={() => abrirCentro('sistema')}>⚙ Ajustes</Button>}
+      </Box>
+    )
 
 
     // ---------- V3: cinco secciones (pestañas en el compacto, menú lateral en el Centro). Los MISMOS constructores sirven a los dos paneles.
@@ -1331,7 +1339,7 @@ export const register: Register = on => {
     // Etiquetas del mismo largo (espacios de ancho fijo a los lados): el Button no se estira, así las pestañas quedan parejas.
     const sec = SECS.some(([k]) => k === vista.seccion) ? vista.seccion : 'resumen'
     if (sec === 'chats' && !ch.j && !ch.leyendo && !ch.err && !leyendoChats) void cargarChats($)   // primera vez: se lee al abrir la seccion
-    if (sec === 'sistema' && Date.now() - itn.t > 15000 && !leyendoIntens) void cargarIntens($, chatIdAct)
+    if (Date.now() - itn.t > (sec === 'sistema' ? 15000 : 60000) && !leyendoIntens) void cargarIntens($, chatIdAct)
     const anchoG = anchoU
     const cardMotor = (m: NonNullable<Datos['motores']>[number]) => {
       // Cuotas reales de la tarjeta del motor (5 h y 7 d): % USADO, hora de renovación y origen (confianza). Sin dato → «No disponible».
@@ -1446,7 +1454,7 @@ export const register: Register = on => {
     const filasAlt = centro ? filasCons.slice(0, 3) : ventanaCons
     const miniConsola = (
       <Box flexDirection="column" gap="xs">
-        {svg(svgTerminal(anchoT, 'Consola', filasAlt.map(f => ({ hora: f.hora, c: f.color, a: f.modelo === 'Modelo no verificable' ? f.ia : f.ia + ' · ' + f.modelo, tag: f.estado, b: (f.motivo || 'sin motivo registrado') + (f.modelo === 'Modelo no verificable' ? ' · modelo no verificable' : '') })), nombresActivos, grupos.length, 'Sin actividad todavía'), (centro ? 'Consola resumida' : 'Mini consola') + ' · ' + (nombresActivos.length ? 'activos: ' + nombresActivos.join(', ') + ' · ' : '') + (filasAlt.length ? filasAlt.map(f => f.hora + ' ' + f.ia + ' (' + f.modelo + ') ' + f.estado + ': ' + f.motivo).join(' | ') : 'sin actividad todavía'), anchoT, 60 + Math.max(1, filasAlt.length) * 42 + 10)}
+        {svg(svgTerminal(anchoT, 'Consola', filasAlt.map(f => ({ ia: f.ia, hora: f.hora, c: f.color, a: f.modelo === 'Modelo no verificable' ? f.ia : f.ia + ' · ' + f.modelo, tag: f.estado, b: (f.motivo || 'sin motivo registrado') + (f.modelo === 'Modelo no verificable' ? ' · modelo no verificable' : '') })), nombresActivos, grupos.length, 'Sin actividad todavía'), (centro ? 'Consola resumida' : 'Mini consola') + ' · ' + (nombresActivos.length ? 'activos: ' + nombresActivos.join(', ') + ' · ' : '') + (filasAlt.length ? filasAlt.map(f => f.hora + ' ' + f.ia + ' (' + f.modelo + ') ' + f.estado + ': ' + f.motivo).join(' | ') : 'sin actividad todavía'), anchoT, 60 + Math.max(1, filasAlt.length) * 42 + 10)}
         <Box flexDirection="row" gap="xs" alignItems="center">
           {!centro && <Button variant="secondary" isDisabled={desde <= 0} onPress={() => vistaSet({ cp: Math.max(0, desde - 1) })}>▲ Subir</Button>}
           {!centro && <Button variant="secondary" isDisabled={desde >= Math.max(0, filasCons.length - CP)} onPress={() => vistaSet({ cp: Math.min(Math.max(0, filasCons.length - CP), desde + 1) })}>▼ Bajar</Button>}
@@ -1640,13 +1648,9 @@ export const register: Register = on => {
           {apagado}
           {alertas}
           {tarjetaReactor}
-          {/* 2.3.0 Pixel Pro: navegación discreta (una tira de botones chicos que se acomoda al ancho) en vez de la grilla 3×2 con íconos. */}
-          <Box flexDirection="row" gap="xs" flexWrap="wrap" padding="xs" borderStyle="round" borderColor={BORDE} backgroundColor={PANEL}>
-            {SECS.map(([k, et]) => (
-              <Button key={'t-' + k} variant={sec === k ? 'primary' : 'secondary'} onPress={() => vistaSet({ seccion: k })}>{et}</Button>
-            ))}
-          </Box>
-          {contenido}
+          {resumen}
+          {tablaMotores}
+          {miniConsola}
           {pie}
         </Box>
       )

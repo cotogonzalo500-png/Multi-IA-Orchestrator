@@ -22,7 +22,7 @@ const sh = (shape: string, value: unknown) => ({ value: { value: { shape, value 
 const casos: [string, number, string][] = [['c320', 36, 'dock'], ['c360', 40, 'dock'], ['c390', 44, 'dock'], ['c416', 46, 'dock'], ['c480', 54, 'dock'], ['centro', 140, 'desktop']]
 const SECS = ['resumen', 'motores', 'actividad', 'consumo', 'chats', 'sistema']
 // Texto propio de cada sección: 'Multi-IA' sale del título y pasaba aunque el cuerpo no dibujara nada (auditoría Codex #8).
-const MARCA: Record<string, string> = { resumen: 'Más métricas', motores: 'SESIÓN 5 H', actividad: 'Historial ·', consumo: 'Consumo y ahorro', chats: 'Exportar MD', sistema: 'Reiniciar Claude' }
+const MARCA: Record<string, string> = { resumen: 'Tokens ahorrados', motores: 'SESIÓN 5 H', actividad: 'Historial ·', consumo: 'Consumo y ahorro', chats: 'Exportar MD', sistema: 'Reiniciar Claude' }
 // Precalentamiento: el primer montaje paga la carga en frío (~2 s) y dejaba a c320 al borde de los 5 s.
 // Verifica algo real (la cabecera con versión) para no ser un test vacío.
 test('arbol precalentamiento', async ($, on) => {
@@ -33,7 +33,7 @@ test('arbol precalentamiento', async ($, on) => {
   await ui.unmount()
 })
 // Un test por ancho × sección (1 montaje cada uno): con 6 montajes por test, c320 quedaba entre 3,4 y 5,3 s con el límite en 5 s.
-for (const [nombre, cols, place] of casos) for (const s of SECS) test('arbol ' + nombre + '-' + s, async ($, on) => {
+for (const [nombre, cols, place] of casos) for (const s of (place === 'desktop' ? SECS : ['resumen'])) test('arbol ' + nombre + '-' + s, async ($, on) => {
   // Latido reciente: en el panel real rapido() lo marca cada 4 s; sin esto el pie quedaba fijo en «conectando…» solo por el fixture.
   on('state.get', (_: any, e: any) => e.key === 'vista' ? sh('vista-2', { ...V2, seccion: s }) : e.key === 'latido' ? sh('latido-3', { rap: Date.now(), cupos: Date.now() - 30000, leyendo: false, err: '', movs: [] }) : sh('datos-8', datos))
   const ui = await $.ui.mount({ plugin: 'multi-ia-orquestador', component: 'Pane', requestId: place === 'desktop' ? 'multi-ia-centro' : 'multi-ia-panel', surface: 'desktop', props: { title: 'Multi-IA', isFocused: false, bodyColumns: cols, placement: place } } as any) as any

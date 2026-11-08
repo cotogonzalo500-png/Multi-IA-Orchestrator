@@ -1622,7 +1622,7 @@ T '2.2.0 register.tsx: KPI adaptable, sin s/d, sin punto suelto en Antigravity, 
     Afirmar ($reg.Contains('const tamValor')) 'falta el tamano de valor adaptable del KPI'
     $iM = $reg.IndexOf('function svgMotor'); $fM = $reg.IndexOf("`nfunction ", $iM + 10); $cuerpoMotor = $reg.Substring($iM, $fM - $iM)
     Afirmar (-not $cuerpoMotor.Contains('s/d')) "queda 's/d' en la tarjeta de motor"
-    Afirmar ($reg.Contains("v: k.v === 's/d' ? '")) "los KPI vacios deben mostrarse como guion, no como s/d"
+    Afirmar ($reg.Contains("const sinD = (v: string) => v === 's/d'") -and $reg.Contains("'Sin datos'")) 'los KPI vacios deben mostrarse como Sin datos, no como s/d (2.3.2)'
     Afirmar ($reg.Contains('.replace(/^Antigravity[\s')) 'el grupo Antigravity no recorta su rotulo'
     Afirmar ($reg.Contains('function presionClaude(d: Datos | null | undefined)')) 'presionClaude no tolera datos nulos'
     Afirmar ($reg.Contains('(ef.recomendaciones ?? [])') -and $reg.Contains('(ch.j?.chats ?? [])')) 'faltan guardas de null en recomendaciones/chats'
@@ -1902,7 +1902,7 @@ T '2.3.1: la Community trae icono (512-2048 px, cuadrado, < 2 MB) y el README ma
     try { Afirmar ($img.Width -eq $img.Height -and $img.Width -ge 512 -and $img.Width -le 2048) "icono de $($img.Width)x$($img.Height)" } finally { $img.Dispose() }
     Afirmar ((Get-Item $ic).Length -lt 2MB) 'el icono pesa 2 MB o mas'
     $rd = Get-Content (Join-Path $raiz 'community\plantilla\README.md') -Raw -Encoding UTF8
-    foreach ($d in 'SECURITY.md', 'PRIVACY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'LICENSE-PROPUESTA.md') {
+    foreach ($d in 'SECURITY.md', 'PRIVACY.md', 'CONTRIBUTING.md', 'CHANGELOG.md') {
         Afirmar ($rd -match ([regex]::Escape("($d)") + ' \(ES\)')) "README.md no marca $d como (ES)"
     }
     Afirmar ($rd -match '/panel-ia') 'README.md no dice como abrir el panel'
