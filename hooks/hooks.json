@@ -1,0 +1,21 @@
+{
+  "description": "Multi-IA: guardia de contexto (avisa cuando la sesión se agranda o la caché expiró) y handoff entre sesiones, para ahorrar cupo de Claude.",
+  "modules": ["./register.tsx"],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/guardia-contexto.mjs\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/handoff-inicio.mjs\"", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

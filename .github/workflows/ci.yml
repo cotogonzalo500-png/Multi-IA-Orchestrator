@@ -1,0 +1,23 @@
+name: ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Pruebas de scripts (sin motores reales, datos aislados)
+        shell: powershell
+        run: |
+          $env:MULTIIA_DATOS = Join-Path $env:RUNNER_TEMP 'multiia-datos'
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\probar.ps1
+      - name: Escaneo de datos personales y secretos
+        shell: powershell
+        run: |
+          $p = '(?i)(sk-[a-z0-9_-]{20,}|gh[pousr]_[a-z0-9]{30,}|github_pat_[a-z0-9_]{30,}|xox[baprs]-[a-z0-9-]{10,}|AIza[0-9a-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+          $hits = Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\' } | Select-String -Pattern $p
+          if ($hits) { $hits; exit 1 }

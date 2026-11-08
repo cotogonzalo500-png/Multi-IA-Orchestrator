@@ -1,0 +1,12 @@
+{
+  "name": "multi-ia",
+  "owner": { "name": "Multi-IA Orquestador contributors" },
+  "description": "Multi-IA Orquestador Community Edition.",
+  "plugins": [
+    {
+      "name": "multi-ia-orquestador",
+      "source": "./",
+      "description": "Claude orchestrates and delegates work to Codex and Antigravity with your own accounts."
+    }
+  ]
+}

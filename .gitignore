@@ -1,0 +1,22 @@
+# Datos locales de cada usuario: nunca al repo
+.multi-ia-orquestador/
+*.jsonl
+config.json
+config.json.*
+conexiones.json
+claude-snapshot.json
+locks/
+*.lock
+*.tmp
+*.log
+# Credenciales: por si alguien las deja cerca
+.env
+.env.*
+auth.json
+*.pem
+*.key
+# Artefactos
+*.zip
+node_modules/
+evidencias/
+respaldos/

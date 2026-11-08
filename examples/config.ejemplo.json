@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "activo": true,
+  "modo": "automatico",
+  "calidad": "equilibrada",
+  "intensidad": "automatico",
+  "intensidad_chats": {},
+  "cuentas": [
+    { "id": "codex", "tipo": "codex", "etiqueta": "Codex (OpenAI)", "activa": true, "home": null },
+    { "id": "agy", "tipo": "agy", "etiqueta": "Antigravity (Google)", "activa": true, "home": null }
+  ],
+  "manual": {
+    "codex": { "modelo": "", "esfuerzo": "medium" },
+    "agy": { "modelo": "gemini-3.8-flash-medium" }
+  },
+  "ahorro": {
+    "umbral_aviso": 60,
+    "umbral_bloqueo": 85,
+    "guardia_activa": true,
+    "ctx_aviso": 150000,
+    "ctx_alto": 300000,
+    "cache_ttl_min": 55,
+    "handoff_inicio": true,
+    "tope_diario_tok": 0,
+    "aviso_pct": 80,
+    "cache_resultados_h": 24,
+    "aprender": true
+  }
+}
