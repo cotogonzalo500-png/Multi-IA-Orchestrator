@@ -34,7 +34,8 @@ test('arbol precalentamiento', async ($, on) => {
 })
 // Un test por ancho × sección (1 montaje cada uno): con 6 montajes por test, c320 quedaba entre 3,4 y 5,3 s con el límite en 5 s.
 for (const [nombre, cols, place] of casos) for (const s of SECS) test('arbol ' + nombre + '-' + s, async ($, on) => {
-  on('state.get', (_: any, e: any) => e.key === 'vista' ? sh('vista-2', { ...V2, seccion: s }) : sh('datos-8', datos))
+  // Latido reciente: en el panel real rapido() lo marca cada 4 s; sin esto el pie quedaba fijo en «conectando…» solo por el fixture.
+  on('state.get', (_: any, e: any) => e.key === 'vista' ? sh('vista-2', { ...V2, seccion: s }) : e.key === 'latido' ? sh('latido-3', { rap: Date.now(), cupos: Date.now() - 30000, leyendo: false, err: '', movs: [] }) : sh('datos-8', datos))
   const ui = await $.ui.mount({ plugin: 'multi-ia-orquestador', component: 'Pane', requestId: place === 'desktop' ? 'multi-ia-centro' : 'multi-ia-panel', surface: 'desktop', props: { title: 'Multi-IA', isFocused: false, bodyColumns: cols, placement: place } } as any) as any
   const all = await ui.findAll({}) as any[]
   console.log('TREE	' + nombre + '-' + s + '	' + JSON.stringify(all[0]))

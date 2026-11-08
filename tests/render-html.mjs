@@ -22,6 +22,8 @@ function html(n) {
     if (p.alignItems) s.push(`align-items:${p.alignItems}`)
     if (p.flexWrap) s.push(`flex-wrap:${p.flexWrap}`)
     if (p.width) s.push(`width:${p.width}`)
+    if (p.flexGrow) s.push(`flex-grow:${p.flexGrow}`)
+    if (p.minHeight) s.push(`min-height:${p.minHeight}`)
     if (p.borderStyle) s.push(`border:1px solid ${p.borderColor || '#444'};border-radius:${p.borderStyle === 'round' ? 8 : 0}px`)
     return `<div style="${s.join(';')}">${kids}</div>`
   }
@@ -43,5 +45,5 @@ const ANCHOS = { c320: 320, c360: 360, c390: 390, c416: 416, c480: 480, centro: 
 for (const l of readFileSync(tsv, 'utf8').split('\n').filter(Boolean)) {
   const [, nombre, json] = l.split('\t')
   const w = ANCHOS[nombre.split('-')[0]]
-  writeFileSync(`${out}/${nombre}.html`, `<!doctype html><meta charset=utf-8><body style="margin:0;background:#0d0914;font:14px 'Segoe UI',sans-serif;width:${w}px">${html(JSON.parse(json))}`)
+  writeFileSync(`${out}/${nombre}.html`, `<!doctype html><meta charset=utf-8><style>html{height:100%}</style><body style="margin:0;min-height:100%;display:flex;flex-direction:column;background:#0d0914;font:14px 'Segoe UI',sans-serif;width:${w}px">${html(JSON.parse(json))}`)
 }

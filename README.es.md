@@ -35,7 +35,7 @@ Después reiniciá Claude Code y corré `/configurar`. Los detalles están en [I
 Cada persona inicia sesión **con su propia cuenta**, desde el CLI oficial de cada proveedor. El plugin nunca lee, copia ni guarda tokens, cookies ni archivos de sesión. Solo mira si el CLI está instalado, qué versión es y, en el caso de Codex, qué responde `codex login status`. Antigravity no tiene una forma gratuita de consultar si iniciaste sesión: `/configurar probar` le manda una tarea mínima real para confirmarlo, y eso gasta un poco del cupo de ese motor.
 
 ## Panel
-Abrí el panel del plugin en Claude Code. Solo lee datos locales de tu carpeta de datos.
+El panel **Multi-IA · consumo** se abre solo al lado del chat cuando empieza una sesión. Si lo cerraste, corré `/panel-ia` para volver a abrirlo. El botón **⤢ Expandir** abre la vista completa (*Multi-IA · Centro de control*). Solo lee datos locales de tu carpeta de datos.
 
 ## Carpeta de datos
 `%USERPROFILE%\.multi-ia-orquestador` (la podés cambiar con la variable `MULTIIA_DATOS`). Ahí quedan la configuración, el registro de uso y la memoria compartida. Nunca forma parte del plugin y no se sube a ningún lado.

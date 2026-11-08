@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const datos = process.env.MULTIIA_DATOS || path.join(os.homedir(), '.multi-ia-orquestador');
+const datos = /^([A-Za-z]:[\\/]|\\\\)/.test(process.env.MULTIIA_DATOS || '') ? process.env.MULTIIA_DATOS : path.join(os.homedir(), '.multi-ia-orquestador');   // 2.3.1: solo rutas absolutas
 const estadoPath = path.join(datos, 'guardia-estado.json');
 const quitaBom = (t) => t.replace(/^﻿/, '');
 

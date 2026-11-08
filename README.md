@@ -29,19 +29,19 @@ Without Codex and without Antigravity the plugin still installs and works, but i
 /plugin marketplace add <github-user>/multi-ia-orquestador
 /plugin install multi-ia-orquestador@multi-ia
 ```
-Then restart Claude Code and run `/configurar`. Details are in [INSTALLATION.md](INSTALLATION.md).
+Then restart Claude Code and run `/configurar`. Details are in [INSTALLATION.md](INSTALLATION.md) (bilingual ES/EN headings; body in Spanish).
 
 ## Connect Codex and Antigravity
 Each user signs in **with their own account**, using the vendor's official CLI. The plugin never reads, copies or stores tokens, cookies or session files. It only checks whether the CLI is installed, which version it is, and (for Codex) what `codex login status` reports. Antigravity has no free way to check whether you are signed in, so `/configurar probar` sends one minimal real task to confirm it. That costs a little of that engine's allowance.
 
 ## Dashboard
-Open the plugin's pane in Claude Code. It reads only local data from your data folder.
+The pane **Multi-IA · consumo** opens by itself beside the chat when a session starts. If you closed it, run `/panel-ia` to open it again. Its **⤢ Expandir** button opens the full view (*Multi-IA · Centro de control*). It reads only local data from your data folder.
 
 ## Data folder
 `%USERPROFILE%\.multi-ia-orquestador` (you can change it with the `MULTIIA_DATOS` environment variable). It holds the configuration, the usage log and the shared memory. It is never part of the plugin folder, and it is never uploaded anywhere.
 
 ## Limitations
-- Windows only (see [docs/COMPATIBILIDAD.md](docs/COMPATIBILIDAD.md)).
+- Windows only (see [docs/COMPATIBILIDAD.md](docs/COMPATIBILIDAD.md), in Spanish).
 - Each engine's provider limits and terms still apply, and so does each user's quota.
 - Savings figures are estimates.
 - Antigravity's sign-in can only be confirmed with a real task.
@@ -64,6 +64,8 @@ Open the plugin's pane in Claude Code. It reads only local data from your data f
 Your data folder (`%USERPROFILE%\.multi-ia-orquestador`) is left in place. Delete it by hand if you want it gone.
 
 ## More
-[INSTALLATION.md](INSTALLATION.md) · [SECURITY.md](SECURITY.md) · [PRIVACY.md](PRIVACY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md)
+[INSTALLATION.md](INSTALLATION.md) (ES) · [SECURITY.md](SECURITY.md) (ES) · [PRIVACY.md](PRIVACY.md) (ES) · [CONTRIBUTING.md](CONTRIBUTING.md) (ES) · [CHANGELOG.md](CHANGELOG.md) (ES)
 
-License: **not decided yet.** See [LICENSE-PROPUESTA.md](LICENSE-PROPUESTA.md). Until a license is chosen, all rights are reserved by the authors.
+> These documents are currently written in Spanish only (marked **(ES)**). English translations are welcome as contributions.
+
+License: **not decided yet.** See [LICENSE-PROPUESTA.md](LICENSE-PROPUESTA.md) (ES). Until a license is chosen, all rights are reserved by the authors.

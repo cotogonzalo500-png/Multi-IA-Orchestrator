@@ -189,7 +189,8 @@ const T = {
   r: 14, sombra: '0 0 12px rgba(167,139,250,.18)', fuente: 'system-ui,Segoe UI,sans-serif',
   anchoCompacto: 440, altoConsolaMax: 150,
   util: 416,       // ancho MÁXIMO de un SVG en compacto; los SVG son fluidos (width 100 % + viewBox) y encogen hasta ~296 px en un panel de 320 px
-  utilExp: 960,    // ancho de la columna de contenido del Centro de control (80 % de 1280 menos márgenes)
+  utilExp: 1010,   // ancho de la columna de contenido del Centro de control: 80 % de (1280 − 2×8 de padding) ≈ 1011 (2.3.1: antes 960 y no llenaba la columna)
+  anchoCabExp: 1246, // cabecera del Centro: menú 18 % + gap 8 + contenido 80 % de 1264 (2.3.1: alinea la cabecera con el borde derecho del contenido)
 }
 
 // Vista compartida por los dos paneles (compacto y Centro de control): misma fuente, estados de interfaz aparte.
@@ -1306,8 +1307,9 @@ export const register: Register = on => {
     const modoNombre = manual ? 'Manual' : 'Automático'
     const intensNombre = String(INT_OPC.find(o => o[0] === itn.v)?.[1] || itn.v).toLowerCase()
     const sinSenal = edadRap > 60
-    const cabecera = svg(svgCabecera(anchoU, encendido, sinSenal),
-      'Multi-IA ' + VERSION + ' · Orquestador multi-motor inteligente · ' + (!encendido ? 'Apagado' : sinSenal ? 'Sin señal' : 'Encendido') + ' · ' + estado.t.replace(/^● /, '') + (chatIdAct ? ' · chat ' + chatIdAct.slice(0, 8) : ''), anchoU, 58)
+    const anchoCab = centro ? T.anchoCabExp : anchoU
+    const cabecera = svg(svgCabecera(anchoCab, encendido, sinSenal),
+      'Multi-IA ' + VERSION + ' · Orquestador multi-motor inteligente · ' + (!encendido ? 'Apagado' : sinSenal ? 'Sin señal' : 'Encendido') + ' · ' + estado.t.replace(/^● /, '') + (chatIdAct ? ' · chat ' + chatIdAct.slice(0, 8) : ''), anchoCab, 58)
     const tarjetaReactor = (
       <Box flexDirection="column" gap="xs">
         {svg(svgTarjetaReactor(mitad, reactor.t, reactor.c, encendido, trabajando, motoresVivos, nDeleg24, modoNombre + ' · intensidad ' + intensNombre),
@@ -1444,7 +1446,7 @@ export const register: Register = on => {
     const filasAlt = centro ? filasCons.slice(0, 3) : ventanaCons
     const miniConsola = (
       <Box flexDirection="column" gap="xs">
-        {svg(svgTerminal(anchoT, 'Consola', filasAlt.map(f => ({ hora: f.hora, c: f.color, a: f.ia + ' · ' + f.modelo, tag: f.estado, b: f.motivo || 'sin motivo registrado' })), nombresActivos, grupos.length, 'Sin actividad todavía'), (centro ? 'Consola resumida' : 'Mini consola') + ' · ' + (nombresActivos.length ? 'activos: ' + nombresActivos.join(', ') + ' · ' : '') + (filasAlt.length ? filasAlt.map(f => f.hora + ' ' + f.ia + ' (' + f.modelo + ') ' + f.estado + ': ' + f.motivo).join(' | ') : 'sin actividad todavía'), anchoT, 60 + Math.max(1, filasAlt.length) * 42 + 10)}
+        {svg(svgTerminal(anchoT, 'Consola', filasAlt.map(f => ({ hora: f.hora, c: f.color, a: f.modelo === 'Modelo no verificable' ? f.ia : f.ia + ' · ' + f.modelo, tag: f.estado, b: (f.motivo || 'sin motivo registrado') + (f.modelo === 'Modelo no verificable' ? ' · modelo no verificable' : '') })), nombresActivos, grupos.length, 'Sin actividad todavía'), (centro ? 'Consola resumida' : 'Mini consola') + ' · ' + (nombresActivos.length ? 'activos: ' + nombresActivos.join(', ') + ' · ' : '') + (filasAlt.length ? filasAlt.map(f => f.hora + ' ' + f.ia + ' (' + f.modelo + ') ' + f.estado + ': ' + f.motivo).join(' | ') : 'sin actividad todavía'), anchoT, 60 + Math.max(1, filasAlt.length) * 42 + 10)}
         <Box flexDirection="row" gap="xs" alignItems="center">
           {!centro && <Button variant="secondary" isDisabled={desde <= 0} onPress={() => vistaSet({ cp: Math.max(0, desde - 1) })}>▲ Subir</Button>}
           {!centro && <Button variant="secondary" isDisabled={desde >= Math.max(0, filasCons.length - CP)} onPress={() => vistaSet({ cp: Math.min(Math.max(0, filasCons.length - CP), desde + 1) })}>▼ Bajar</Button>}
@@ -1633,7 +1635,7 @@ export const register: Register = on => {
     if (!centro) {
       // ---------- PANEL COMPACTO (2.3.0 Pixel Pro): encabezado · reactor · navegación discreta · una sección a la vez (el interruptor vive en Sistema)
       return (
-        <Box flexDirection="column" gap="sm" padding="sm" backgroundColor={FONDO}>
+        <Box flexDirection="column" gap="sm" padding="sm" flexGrow={1} minHeight="100%" backgroundColor={FONDO}>
           {cabecera}
           {apagado}
           {alertas}
@@ -1652,7 +1654,7 @@ export const register: Register = on => {
 
     // ---------- CENTRO DE CONTROL (expandido, pensado para 1280×800): cabecera + menú lateral con el interruptor + contenido multicolumna
     return (
-      <Box flexDirection="column" gap="sm" padding="sm" backgroundColor={FONDO}>
+      <Box flexDirection="column" gap="sm" padding="sm" flexGrow={1} minHeight="100%" backgroundColor={FONDO}>
         {cabecera}
         {apagado}
         {alertas}

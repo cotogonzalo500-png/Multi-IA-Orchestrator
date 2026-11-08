@@ -2,7 +2,11 @@
 # Los datos viven FUERA del plugin (el plugin se instala en una copia de solo lectura): MULTIIA_DATOS o ~\.multi-ia-orquestador.
 [Console]::OutputEncoding = [Text.Encoding]::UTF8   # sin esto los acentos de las respuestas salen rotos en PS 5.1
 $script:ScriptsDir = $PSScriptRoot
-$script:DatosDir = if ($env:MULTIIA_DATOS) { $env:MULTIIA_DATOS } else { Join-Path $env:USERPROFILE '.multi-ia-orquestador' }
+# 2.3.1 (Antigravity): MULTIIA_DATOS tiene que ser una ruta ABSOLUTA (C:\... o \\servidor\...). Una relativa dependeria de la carpeta
+# actual y desparramaria datos: se ignora, se usa la carpeta por defecto y queda el aviso en $script:AvisoDatos (lo muestra /configurar).
+$script:AvisoDatos = ''
+$script:DatosDir = if ($env:MULTIIA_DATOS -and $env:MULTIIA_DATOS -match '^([A-Za-z]:[\\/]|\\\\)') { $env:MULTIIA_DATOS } else { Join-Path $env:USERPROFILE '.multi-ia-orquestador' }
+if ($env:MULTIIA_DATOS -and $env:MULTIIA_DATOS -notmatch '^([A-Za-z]:[\\/]|\\\\)') { $script:AvisoDatos = "MULTIIA_DATOS='$($env:MULTIIA_DATOS)' no es una ruta absoluta: se ignora y se usa $($script:DatosDir)" }
 $script:MemoriaArchivo = Join-Path $script:DatosDir 'MEMORIA.md'
 $script:UsoArchivo = Join-Path $script:DatosDir 'uso.jsonl'
 $script:ClaudeSnapshot = Join-Path $script:DatosDir 'claude-snapshot.json'

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { conCandado, matarVerificado } from './robustez.mjs';
 
 const PUERTO = Number(process.env.MULTIIA_PUERTO || 8765);
-const datos = process.env.MULTIIA_DATOS || path.join(os.homedir(), '.multi-ia-orquestador');
+const datos = /^([A-Za-z]:[\\/]|\\\\)/.test(process.env.MULTIIA_DATOS || '') ? process.env.MULTIIA_DATOS : path.join(os.homedir(), '.multi-ia-orquestador');   // 2.3.1: solo rutas absolutas
 const cfgPath = path.join(datos, 'config.json');
 const panelPath = path.join(datos, 'panel.html');
 const MAX_CUENTAS = 3;

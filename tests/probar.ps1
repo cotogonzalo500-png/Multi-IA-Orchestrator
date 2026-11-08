@@ -1875,6 +1875,44 @@ T '2.3.1 revision Antigravity: la CI de la Community detecta claves sk-proj, sk-
     $sec = Get-Content (Join-Path $raiz 'community\plantilla\SECURITY.md') -Raw
     Afirmar ($sec -match 'no es infalible') 'SECURITY.md vuelve a prometer que nunca se manda un secreto'
 }
+T '2.3.1 revision Antigravity: MULTIIA_DATOS relativo se ignora (carpeta por defecto + aviso); absoluto se respeta' {
+    $cmd = ". '" + (Join-Path $sc '_comun.ps1') + "'; `$script:DatosDir; 'AVISO=' + `$script:AvisoDatos"
+    $prev = $env:MULTIIA_DATOS
+    try {
+        $env:MULTIIA_DATOS = 'datos-relativos'
+        $r = (& powershell -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String)
+        Afirmar ($r -notmatch '(?m)^datos-relativos\s*$') 'una ruta relativa se usa como carpeta de datos'
+        Afirmar ($r -match 'AVISO=MULTIIA_DATOS=.datos-relativos. no es una ruta absoluta') 'no queda aviso para la ruta relativa'
+        $env:MULTIIA_DATOS = $tmp
+        $r = (& powershell -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String)
+        Afirmar ($r.Contains($tmp)) 'una ruta absoluta no se respeta'
+        Afirmar ($r -match '(?m)^AVISO=\s*$') 'avisa con una ruta absoluta valida'
+    } finally { $env:MULTIIA_DATOS = $prev }
+    foreach ($f in 'guardia-contexto.mjs', 'handoff-inicio.mjs', 'panel-servidor.mjs', 'statusline.mjs', 'reiniciar-claude.ps1') {
+        $c = Get-Content (Join-Path $sc $f) -Raw
+        Afirmar ($c -match '\[A-Za-z\]:\[') "$f no valida que MULTIIA_DATOS sea absoluta"
+    }
+}
+T '2.3.1: la Community trae icono (512-2048 px, cuadrado, < 2 MB) y el README marca (ES) los documentos solo en castellano' {
+    SoloDev 'usa una ruta o una carpeta que solo existe en DEV'
+    $ic = Join-Path $raiz 'community\plantilla\.claude-plugin\icon.png'
+    Afirmar (Test-Path $ic) 'falta community\plantilla\.claude-plugin\icon.png'
+    Add-Type -AssemblyName System.Drawing
+    $img = [System.Drawing.Image]::FromFile($ic)
+    try { Afirmar ($img.Width -eq $img.Height -and $img.Width -ge 512 -and $img.Width -le 2048) "icono de $($img.Width)x$($img.Height)" } finally { $img.Dispose() }
+    Afirmar ((Get-Item $ic).Length -lt 2MB) 'el icono pesa 2 MB o mas'
+    $rd = Get-Content (Join-Path $raiz 'community\plantilla\README.md') -Raw -Encoding UTF8
+    foreach ($d in 'SECURITY.md', 'PRIVACY.md', 'CONTRIBUTING.md', 'CHANGELOG.md', 'LICENSE-PROPUESTA.md') {
+        Afirmar ($rd -match ([regex]::Escape("($d)") + ' \(ES\)')) "README.md no marca $d como (ES)"
+    }
+    Afirmar ($rd -match '/panel-ia') 'README.md no dice como abrir el panel'
+    $ci = Get-Content (Join-Path $raiz 'community\plantilla\.github\workflows\ci.yml') -Raw
+    Afirmar ($ci -match "\`$rutas = '([^']+)'") 'la CI no escanea rutas personales'
+    $rutas = $Matches[1]
+    Afirmar (('C:' + '\Users\Fulano\x') -match $rutas) 'el patron de rutas no detecta C:\Users\<alguien>'
+    Afirmar (-not ('%USERPROFILE%\x' -match $rutas)) 'el patron de rutas marca %USERPROFILE%'
+    Afirmar (-not (('C:' + '\Users\Public\x') -match $rutas)) 'el patron de rutas marca C:\Users\Public'
+}
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""; Write-Host "Resultado: $ok ok, $mal con falla$(if ($omit) { ", $omit omitidas (solo DEV)" })" -ForegroundColor $(if ($mal) { 'Red' } else { 'Green' })
 exit $(if ($mal) { 1 } else { 0 })

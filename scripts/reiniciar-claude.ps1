@@ -13,7 +13,7 @@ param(
     [switch]$Supervisor, [string]$EstadoArchivo = ''   # internos: el segundo proceso que hace el trabajo
 )
 $ErrorActionPreference = 'Stop'
-$datos = if ($env:MULTIIA_DATOS) { $env:MULTIIA_DATOS } else { Join-Path $env:USERPROFILE '.multi-ia-orquestador' }   # 2.3.1 (Codex #11): sin ruta fija de un usuario
+$datos = if ($env:MULTIIA_DATOS -and $env:MULTIIA_DATOS -match '^([A-Za-z]:[\\/]|\\\\)') { $env:MULTIIA_DATOS } else { Join-Path $env:USERPROFILE '.multi-ia-orquestador' }   # 2.3.1 (Codex #11): sin ruta fija de un usuario
 if (-not (Test-Path -LiteralPath $datos)) { New-Item -ItemType Directory -Path $datos -Force | Out-Null }
 $logArchivo = Join-Path $datos 'reinicios.jsonl'
 $yo = $MyInvocation.MyCommand.Path

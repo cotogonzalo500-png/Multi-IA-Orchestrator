@@ -11,6 +11,6 @@
 
 ## Componentes de terceros
 - La edición no incluye código ni binarios de terceros: Codex, Antigravity, Node.js y Claude Code los instala cada usuario desde su fuente oficial.
-- El ícono de la edición personal **no** se incluye porque su origen y sus derechos no están documentados.
+- El ícono de la edición personal **no** se incluye porque su origen y sus derechos no están documentados. La Community trae un ícono propio dibujado desde cero (`.claude-plugin/icon.png`), que queda bajo la misma licencia que se elija para el código.
 
 Cuando se apruebe la licencia: agregar el archivo `LICENSE`, el campo `license` en `.claude-plugin/plugin.json` y borrar este archivo.

@@ -19,5 +19,7 @@ jobs:
         shell: powershell
         run: |
           $p = '(?i)(sk-[a-z0-9_-]{20,}|gh[pousr]_[a-z0-9]{30,}|github_pat_[a-z0-9_]{30,}|xox[baprs]-[a-z0-9-]{10,}|AIza[0-9a-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
-          $hits = Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\' } | Select-String -Pattern $p
+          # Rutas personales (C:\Users\<alguien>\...): el codigo usa %USERPROFILE% / $env:USERPROFILE / os.homedir(), nunca un usuario fijo.
+          $rutas = '(?i)\b[a-z]:\\+users\\+(?!public\\|default\\|<|%|\$|\{|usuario\\|user\\|runneradmin\\)[a-z0-9._ -]+\\'
+          $hits = Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch '\\\.git\\' } | Select-String -Pattern $p, $rutas
           if ($hits) { $hits; exit 1 }

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const datos = process.env.MULTIIA_DATOS || path.join(os.homedir(), '.multi-ia-orquestador');
+const datos = /^([A-Za-z]:[\\/]|\\\\)/.test(process.env.MULTIIA_DATOS || '') ? process.env.MULTIIA_DATOS : path.join(os.homedir(), '.multi-ia-orquestador');   // 2.3.1: solo rutas absolutas
 const quitaBom = (t) => t.replace(/^\uFEFF/, '');
 let entrada = '';
 process.stdin.resume(); process.stdin.on('data', (d) => { entrada += d; }); // del JSON de entrada solo se usa cwd (2.3.1)

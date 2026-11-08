@@ -29,6 +29,7 @@ try {
     $p = Join-Path $script:DatosDir ".prueba-escritura-$PID"
     [IO.File]::WriteAllText($p, 'ok'); Remove-Item -LiteralPath $p -Force; $datosOk = $true
 } catch { $datosDet = "$($script:DatosDir) (sin permiso de escritura: $($_.Exception.Message))" }
+if ($script:AvisoDatos) { $datosDet = "$datosDet (aviso: $($script:AvisoDatos))" }
 Req 'datos' $datosOk $datosDet "No se puede escribir en $($script:DatosDir). Elegi otra carpeta con la variable de entorno MULTIIA_DATOS."
 
 # 3) Preferencias: si no hay config, se crea la de por defecto (modo e intensidad Automatico). Si existe, no se toca.
