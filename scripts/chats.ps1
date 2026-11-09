@@ -141,8 +141,15 @@ switch ($Estado) {
     'anteriores' { $chats = @($chats | Where-Object { $_.estado -ne 'activo confirmado' }) }
 }
 $actual = [string]$env:CLAUDE_CODE_SESSION_ID
+$actualOrigen = 'CLAUDE_CODE_SESSION_ID'
+# 2.3.3: el panel corre este script como proceso hijo y puede NO heredar CLAUDE_CODE_SESSION_ID (entonces «Ahorro por chat» quedaba siempre
+# en «No determinable»). Sin variable, se infiere el chat con actividad mas reciente (nunca «sin-sesion») y se marca como INFERIDO.
+if (-not $actual) {
+    $cand = @($chats | Where-Object { $_.id_chat -ne $SIN } | Sort-Object { $_.ultima } -Descending | Select-Object -First 1)
+    if ($cand.Count) { $actual = [string]$cand[0].id_chat; $actualOrigen = 'inferido: chat con la actividad mas reciente' } else { $actualOrigen = 'no disponible' }
+}
 $o = [ordered]@{
-    generado = (Get-Date).ToString('s'); chat_actual = $(if ($actual) { $actual } else { $null }); filtro = $Estado
+    generado = (Get-Date).ToString('s'); chat_actual = $(if ($actual) { $actual } else { $null }); chat_actual_origen = $actualOrigen; filtro = $Estado
     chats = $chats
     ejecuciones_activas = @($ejecReal | Where-Object { $_.abierta })
     nota = 'Registro derivado de archivos reales. "activo confirmado" solo con una senal de los ultimos 120 s; sin senal = "ultimo observado" o "desactualizado", no "inactivo".'

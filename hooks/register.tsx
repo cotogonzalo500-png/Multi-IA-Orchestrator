@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '2.3.2'
+const VERSION = '2.3.3'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -1212,7 +1212,9 @@ export const register: Register = on => {
         const tok = c?.consumo.claude_real.valor ?? null, cx = c?.consumo.codex.valor ?? null, ag = c?.consumo.antigravity.valor ?? null
         const trab = cx === null && ag === null ? null : (cx ?? 0) + (ag ?? 0)
         const cos = c?.consumo.claude_estimado_delegaciones.valor ?? null
-        const aho = trab !== null && cos !== null ? trab - cos : null   // 2.3.0 UX: sin recortar a 0; un balance negativo se muestra tal cual
+        // 2.3.3: un chat conocido SIN delegaciones no ahorró nada (0, dato real), no «No determinable». Con delegaciones pero sin costo, sigue sin determinarse.
+        const sinDeleg = !!c && c.delegaciones === 0
+        const aho = sinDeleg ? 0 : trab !== null && cos !== null ? trab - cos : null   // 2.3.0 UX: sin recortar a 0; un balance negativo se muestra tal cual
         const ejN = (ch.j?.ejecuciones_recientes ?? []).filter(e => e.id_chat === c?.id_chat).length
         return [
           { v: tok === null && trab === null ? 's/d' : fmt((tok ?? 0) + (trab ?? 0)), r: 'tokens totales', c: T.violeta },   // 2.3.0 UX: Claude + delegado, igual que Global
@@ -1221,7 +1223,7 @@ export const register: Register = on => {
           { v: cos === null ? 's/d' : fmt(cos), r: 'costo estimado', c: T.ambar },
           { v: aho === null ? nd : '≈ ' + fmt(aho), r: 'ahorro estimado', c: (aho ?? 0) < 0 ? T.aviso : T.okSuave },
           { v: c ? String(ejN) : 's/d', r: 'ejecuciones', c: T.cian },
-          { v: aho === null || !trab ? nd : Math.round(aho * 100 / trab) + ' %', r: 'ahorro por chat', c: T.ahorro },
+          { v: sinDeleg ? '0 %' : aho === null || !trab ? nd : Math.round(aho * 100 / trab) + ' %', r: 'ahorro por chat', c: T.ahorro },
           { v: 's/d', r: 'recuperaciones', c: T.magenta },
         ]
       }

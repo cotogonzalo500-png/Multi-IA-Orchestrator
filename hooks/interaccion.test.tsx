@@ -155,7 +155,7 @@ test('Chats: sin resumen general no se dibujan KPI inventados', async ($, on) =>
 test('Sistema: KPI de estado (modo, esfuerzo, intensidad, versión) y controles viejos', async ($, on) => {
   const ui = await montarSec($, on, 'sistema')
   const alt = String((await svgAlt(ui, /^Estado del sistema/))?.props?.alt)
-  expect(alt).toMatch(/Elección de motores Automático; Esfuerzo general auto; Intensidad global .+; Versión v2\.3\.2/)
+  expect(alt).toMatch(/Elección de motores Automático; Esfuerzo general auto; Intensidad global .+; Versión v2\.3\.3/)
   expect(await ui.find({ type: 'Button', text: /Reiniciar Claude/ })).toBeTruthy()
   expect(await ui.find({ type: 'Button', text: /Cambiar/ })).toBeTruthy()
   await ui.unmount()
@@ -240,6 +240,14 @@ test('Ahorro por chat: con chat-B como actual cambia el valor', async ($, on) =>
   expect(a).not.toMatch(/Ahorro por chat 50 %/)
   await ui.unmount()
 })
+test('Ahorro por chat: un chat conocido sin delegaciones muestra 0 % (dato real), no «No determinable»', async ($, on) => {
+  const c = chatsConDatos('chat-Z') as any
+  c.value.j.chats.push(chatProp('chat-Z', 0, null, null, 4000, null))
+  vistaYDatos(on, {}, { chats: c })
+  const ui = await montar($)
+  expect(await altKpi(ui)).toMatch(/Ahorro por chat 0 %/)
+  await ui.unmount()
+})
 test('Las 4 tarjetas: tokens totales, ahorrados (con delegaciones), ahorro por chat y costo, y nada más', async ($, on) => {
   vistaYDatos(on, {}, { chats: chatsConDatos('chat-B') })
   const ui = await montar($)
@@ -312,7 +320,7 @@ test('Intensidad: «Heredar global» quita la preferencia solo de este chat', as
 test('Pixel Pro: la cabecera lleva la mascota pixel Chispa (naranja, crispEdges) y ninguna hoja', async ($, on) => {
   vistaYDatos(on, {})
   const ui = await montar($)
-  const cab = await svgAlt(ui, /^Multi-IA 2\.3\.2 /)
+  const cab = await svgAlt(ui, /^Multi-IA 2\.3\.3 /)
   const src = String(cab?.props?.source ?? '')
   expect(src).toContain('Chispa, mascota Multi-IA')
   expect(src).toContain('#ff9b38')

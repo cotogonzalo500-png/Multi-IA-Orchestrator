@@ -967,6 +967,19 @@ T 'chats: consumo por chat separado por proveedor, sin mezclar chats ni sumar en
     Afirmar ($A.consumo.claude_real.nivel -eq 'NO DISPONIBLE') 'sin transcripts, el real de Claude debe ser NO DISPONIBLE'
     Afirmar ($null -eq $A.consumo.total.valor) 'no debe haber total entre proveedores'
 }
+T '2.3.3 chats: sin CLAUDE_CODE_SESSION_ID (panel) el chat actual se INFIERE (ultimo con actividad, no sin-sesion) y se marca; con la variable, se respeta' {
+    Sembrar-Chats
+    $sv = $env:CLAUDE_CODE_SESSION_ID
+    try {
+        Remove-Item Env:CLAUDE_CODE_SESSION_ID -ErrorAction SilentlyContinue
+        $j = Chats-Json
+        Afirmar ($j.chat_actual -and $j.chat_actual -ne 'sin-sesion') "chat_actual inferido: '$($j.chat_actual)'"
+        Afirmar ($j.chat_actual_origen -like 'inferido*') "origen: $($j.chat_actual_origen)"
+        $env:CLAUDE_CODE_SESSION_ID = 'chat-B'
+        $k = Chats-Json
+        Afirmar ($k.chat_actual -eq 'chat-B' -and $k.chat_actual_origen -eq 'CLAUDE_CODE_SESSION_ID') "con variable: $($k.chat_actual) / $($k.chat_actual_origen)"
+    } finally { if ($sv) { $env:CLAUDE_CODE_SESSION_ID = $sv } else { Remove-Item Env:CLAUDE_CODE_SESSION_ID -ErrorAction SilentlyContinue } }
+}
 T 'chats: test/simulacion fuera de los totales, el costo sin chat queda aparte y el filtro por chat no mezcla' {
     Sembrar-Chats; $j = Chats-Json
     $A = $j.chats | Where-Object { $_.id_chat -eq 'chat-A' }
