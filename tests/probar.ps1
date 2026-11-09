@@ -726,10 +726,17 @@ T 'delegar-agy.ps1: un prompt que no entra en la linea de comandos de Windows se
         Remove-Item (Join-Path $tmp 'config.json*') -Force -ErrorAction SilentlyContinue
         $o = (PS1 'delegar-agy.ps1' @('-Prompt', ('a' * 30000)) | Out-String); $cod = $LASTEXITCODE
         Afirmar ($cod -eq 1) "esperaba salida 1, dio $cod : $o"
-        Afirmar ($o -match 'maximo 28000' -and $o -match '-Archivo') "falta el motivo claro: $o"
+        $o1 = ($o -replace '\s+', ' ')   # el ErrorRecord se parte segun ancho de consola/ruta (2.3.8: fallaba en un clon con ruta larga)
+        Afirmar ($o1 -match 'maximo 28000' -and $o1 -match '-Archivo') "falta el motivo claro: $o"
         $src = Get-Content (Join-Path $sc 'delegar-agy.ps1') -Raw
         Afirmar ($src -notmatch "'--add-dir'") 'sigue el desvio por archivo temporal que agy no puede leer'
     } finally { $env:MULTIIA_AGY_EXE = $viejoA }
+}
+T '2.3.8 auditoria Codex: PEM es secreto y la deduplicacion reconoce JSON con espacios' {
+    . (Join-Path $sc '_comun.ps1')
+    Afirmar (Test-Secreto "x`n-----BEGIN RSA PRIVATE KEY-----`nabc") 'un bloque PEM debe detectarse como secreto'
+    $v = @{}; $l = '{"ej": "ej-demo", "tok_in":100}'
+    Afirmar ((Test-LineaNueva $v $l) -and -not (Test-LineaNueva $v $l)) 'la misma linea con espacios debe contarse una sola vez'
 }
 Write-Host "== v1.8.0: hallazgos de la auditoria Codex"
 T 'ConvertTo-ArgWin: la secuencia \" no escapa del argumento (no inyecta opciones)' {
@@ -1864,6 +1871,19 @@ T '2.3.1 auditoria Codex #13: Find-AgyExe respeta MULTIIA_AGY_EXE y no rompe sin
     $o = (& powershell -NoProfile -Command "`$env:LOCALAPPDATA=''; `$env:MULTIIA_AGY_EXE=''; `$env:MULTIIA_DATOS='$tmp'; . '$($sc.Replace('''',''''''))\_comun.ps1'; try { `$r = Find-AgyExe; 'OK:' + [string]`$r } catch { 'ERROR:' + `$_ }" 2>&1 | Out-String)
     Afirmar ($o -match 'OK:' -and $o -notmatch 'ERROR:') "rompio sin LOCALAPPDATA: $o"
     foreach ($n in 'delegar-agy.ps1', 'motores.ps1', 'conexiones.ps1') { Afirmar ((Get-Content (Join-Path $sc $n) -Raw) -match 'Find-AgyExe') "$n no usa la deteccion unica" }
+}
+T '2.3.8 hallazgo Codex #4: un ejecutable que no arranca da codigo 126 y clase no-arranca, sin excepcion cruda' {
+    $malo = Join-Path $tmp 'no-ejecutable.exe'; [IO.File]::WriteAllText($malo, 'esto no es un ejecutable')
+    $r = Invoke-ConTimeout $malo @('--version') 10
+    Afirmar ($r -and $r.codigo -eq 126 -and $r.arranque -eq $false) "no devolvio 126/arranque=false: $($r | Out-String)"
+    Afirmar ((Get-ClaseError -Texto $r.error -Salida $r.codigo).clase -eq 'no-arranca') "clase mal: $((Get-ClaseError -Texto $r.error -Salida $r.codigo) | Out-String)"
+    $viejoO = $env:MULTIIA_ORIGEN; $viejoA = $env:MULTIIA_AGY_EXE; $env:MULTIIA_ORIGEN = 'test'; $env:MULTIIA_AGY_EXE = $malo
+    $eapV = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+        $o = (& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $sc 'delegar-agy.ps1') -Prompt hola 2>&1 | Out-String)
+        Afirmar ($LASTEXITCODE -eq 126) "agy con exe invalido salio $LASTEXITCODE (esperado 126)"
+        Afirmar ($o -match 'no arranca') "mensaje sin 'no arranca': $o"
+    } finally { $ErrorActionPreference = $eapV; $env:MULTIIA_ORIGEN = $viejoO; $env:MULTIIA_AGY_EXE = $viejoA }
 }
 T '2.3.1 auditoria Codex #14: la cache distingue memoria distinta y no guarda respuestas de codex' {
     $mem = Join-Path $tmp 'MEMORIA.md'; $memViejo = if (Test-Path $mem) { [IO.File]::ReadAllText($mem) } else { $null }

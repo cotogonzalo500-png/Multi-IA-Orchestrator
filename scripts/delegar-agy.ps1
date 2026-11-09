@@ -36,7 +36,7 @@ if (-not $Modelo) {
 }
 
 $agy = Find-AgyExe   # 2.3.1 (Codex #13): deteccion unica (MULTIIA_AGY_EXE > LOCALAPPDATA > PATH)
-if (-not $agy) { $global:MIA_Causa = Get-ClaseError -Texto 'No encontre agy.exe' -Salida 1; Write-Error "No encontre agy.exe. Instalalo desde https://antigravity.google/download (despues corre /configurar)."; exit 1 }
+if (-not $agy) { $global:MIA_Causa = Get-ClaseError -Texto 'No encontre agy.exe' -Salida 1; Write-Error "No encontre agy.exe. Instalalo con la guia oficial (PowerShell: irm https://antigravity.google/cli/install.ps1 | iex), abri agy una vez para iniciar sesion y corre /configurar."; exit 1 }
 
 if ($Archivo) {
     # Regla 2 (nunca secretos): se rechazan por nombre, por contenido y los binarios. Se informa que archivos salieron.
@@ -106,6 +106,7 @@ try {
     $segEspera = if ($Espera -match '^(\d+)\s*(s|m|h)?$') { [int]$Matches[1] * @{ s = 1; m = 60; h = 3600 }[$(if ($Matches[2]) { $Matches[2] } else { 's' })] } else { 300 }
     $argsAgy = @('-p', $Prompt) + $extraDir + @('--model', $Modelo, '--print-timeout', $Espera, '--output-format', 'json')
     $res = Invoke-ConTimeout $agy $argsAgy ($segEspera + 90) -Duro
+    if ($res.arranque -eq $false) { $msgA = "agy no arranca ($agy): $($res.error). Reinstalalo o corregi MULTIIA_AGY_EXE."; Set-CausaActual -Texto $msgA -Salida 126; Write-Error $msgA; exit 126 }
     $crudo = @($res.salida -split "\r?\n" | Where-Object { $_ -ne '' })
     $salida = [int]$res.codigo
     $global:MIA_Timeout = [bool]$res.timeout

@@ -41,7 +41,7 @@ codex login status
 ```
 Si PowerShell no deja correr `codex` por la política de ejecución (error «la ejecución de scripts está deshabilitada»), usá `codex.cmd login` y `codex.cmd login status`: no hace falta cambiar ninguna política ni ser administrador. Si `npm` también está bloqueado, usá `npm.cmd install -g @openai/codex`. También vale la app de escritorio de Codex. Si `codex.exe` está en otro lugar, definí `MULTIIA_CODEX_EXE` con la ruta completa.
 
-**Antigravity (Google)**: instalalo siguiendo las instrucciones oficiales de Google Antigravity (https://antigravity.google/download), abrí `agy` una vez en una terminal e iniciá sesión con tu cuenta. Para verificarlo, corré `/configurar probar`.
+**Antigravity (Google)**: instalá la CLI con la guía oficial (https://antigravity.google/docs/getting-started?tab=cli; en PowerShell: `irm https://antigravity.google/cli/install.ps1 | iex`). Abrí `agy` una vez en una terminal: usa el llavero de Windows y, si no hay sesión, abre el navegador para el login de Google (en SSH muestra una URL y un código; también se admite GEMINI_API_KEY). No hay comando de login separado; `/logout` dentro de agy cierra la sesión. Para verificarlo, corré `/configurar probar`.
 
 El login lo hace cada persona con su cuenta. El plugin no pide, no lee y no copia credenciales.
 

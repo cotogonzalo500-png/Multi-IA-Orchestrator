@@ -1,6 +1,6 @@
 {
   "name": "multi-ia-orquestador",
-  "version": "2.3.7",
+  "version": "2.3.9",
   "types": "./types/index.d.ts",
   "description": "Claude orchestrates and delegates work to Codex (OpenAI) and Antigravity (Google) using each user's own accounts, to save Claude usage. Windows only.",
   "author": { "name": "Multi-IA Orquestador contributors" },

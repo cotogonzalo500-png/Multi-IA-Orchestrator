@@ -37,6 +37,7 @@ $homeViejo = $env:CODEX_HOME
 if ($cta.home) { $env:CODEX_HOME = $cta.home }   # otra cuenta de ChatGPT = otra carpeta de sesion
 # Verificacion previa: sin sesion Codex reintenta varias veces antes de fallar; asi falla al instante y con el motivo.
 $estado = Invoke-ConTimeout $codex @('login', 'status') 20
+if ($estado -and $estado.arranque -eq $false) { $env:CODEX_HOME = $homeViejo; $msg = "Codex no arranca ($codex): $($estado.error). Reinstalalo o corregi MULTIIA_CODEX_EXE."; Set-CausaActual -Texto $msg -Salida 126; Write-Error $msg; exit 126 }
 if (-not $estado -or $estado.codigo -ne 0 -or (($estado.salida + $estado.error) -match '(?i)not logged') -or (($estado.salida + $estado.error) -notmatch '(?i)logged in')) {
     $env:CODEX_HOME = $homeViejo
     $msg = "La cuenta '$Cuenta' de Codex no tiene sesión. Abrí la app de Codex e iniciá sesión con ChatGPT$(if ($cta.home) { " (o: `$env:CODEX_HOME='$($cta.home)'; codex login)" })."
@@ -99,7 +100,7 @@ if ($origenAislado) {
     }
     foreach ($f in (Get-ChildItem -LiteralPath $origenAislado -Recurse -File -Force -ErrorAction SilentlyContinue)) {
         $rel = $f.FullName.Substring($origenAislado.Length + 1)
-        if ($rel -notlike '.git\*' -and $rel -notlike 'node_modules\*' -and -not $enCopia[$rel] -and ($rel -notlike '*\.git\*') -and ($rel -notlike '*\node_modules\*')) { $camb += "BORRADO: $rel" }
+        if ($f.Name -notmatch $nombreSecreto -and $rel -notlike '__pycache__\*' -and $rel -notlike '*\__pycache__\*' -and $rel -notlike '.venv\*' -and $rel -notlike '*\.venv\*' -and $rel -notlike '.git\*' -and $rel -notlike 'node_modules\*' -and -not $enCopia[$rel] -and ($rel -notlike '*\.git\*') -and ($rel -notlike '*\node_modules\*')) { $camb += "BORRADO: $rel" }
     }
     Write-Output "[aislado] copia de trabajo: $Carpeta"
     Write-Output $(if ($camb) { "[aislado] cambios ($($camb.Count)):`n" + ($camb -join "`n") } else { '[aislado] Codex no cambió ningún archivo.' })

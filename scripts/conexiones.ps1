@@ -89,6 +89,7 @@ foreach ($id in 'codex', 'agy') {
 
     $estado = 'Desconocido'; $porque = ''
     if (-not $exe) { $estado = 'No instalado'; $porque = "no se encontro el ejecutable de $nombre" }
+    elseif ($ver -and -not $ver.valor -and $ver.error -match '126') { $estado = 'Error'; $porque = "el ejecutable no arranca ($exe): reinstalalo o corregi la ruta" }
     elseif ($id -eq 'codex' -and $aut -and $aut.valor -eq 'sin sesion') { $estado = 'Autenticacion requerida'; $porque = 'codex login status: sin sesion' }
     elseif ($errReciente -and $errClase -eq 'autenticacion') { $estado = 'Autenticacion requerida'; $porque = "ultimo fallo real: $errCausa" }
     elseif ($errReciente -and $errClase -eq 'cuota') { $estado = 'Limitado'; $porque = "ultimo fallo real: $errCausa" }

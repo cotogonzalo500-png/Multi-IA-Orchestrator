@@ -15,7 +15,7 @@ $script:ClaudeSnapshot = Join-Path $script:DatosDir 'claude-snapshot.json'
 # despues un codex.exe en el PATH, y por ultimo el binario nativo del paquete npm @openai/codex (el shim codex.cmd/.ps1
 # no se puede lanzar directo con ProcessStartInfo). Vacio = no instalado. MULTIIA_CODEX_EXE fuerza una ruta.
 function Find-CodexExe {
-    if ($env:MULTIIA_CODEX_EXE) { if (Test-Path -LiteralPath $env:MULTIIA_CODEX_EXE) { return $env:MULTIIA_CODEX_EXE } else { return '' } }
+    if ($env:MULTIIA_CODEX_EXE) { if (Test-Path -LiteralPath $env:MULTIIA_CODEX_EXE -PathType Leaf) { return $env:MULTIIA_CODEX_EXE } else { return '' } }
     $app = Get-ChildItem "$env:LOCALAPPDATA\OpenAI\Codex\bin" -Recurse -Filter codex.exe -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
     if ($app) { return $app }
@@ -60,7 +60,7 @@ function Get-HashMemoria {
 }
 
 # 2.3.1 (auditoria Codex #3 y #10): un solo patron de secretos para TODO lo que sale a otra IA (prompt final, memoria incluida) y para tachar registros.
-$script:RegexSecreto = 'AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{16,}|(?i)(bearer\s+[A-Za-z0-9._~+/=-]{16,}|["'']?(api[_-]?key|password|passwd|secret|token|(set-)?cookie)["'']?\s*[:=]\s*[''"]?\S{8,})'
+$script:RegexSecreto = '-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{16,}|(?i)(bearer\s+[A-Za-z0-9._~+/=-]{16,}|["'']?(api[_-]?key|password|passwd|secret|token|(set-)?cookie)["'']?\s*[:=]\s*[''"]?\S{8,})'
 function Test-Secreto([string]$Texto) { [bool]($Texto -and ($Texto -match $script:RegexSecreto)) }
 function Hide-Secretos([string]$Texto) {
     if (-not $Texto) { return $Texto }
@@ -363,6 +363,7 @@ function Get-ClaseError {
     $clase = 'desconocido'
     if ($t -match '\[SIMULADO\]|MULTIIA_SIMULAR') { $clase = 'simulado' }
     elseif ($t -match '(?i)No encontr. (codex|agy)|agy no est. instalado|no se encontr. el ejecutable') { $clase = 'no-instalado'; $reint = $false }   # 2.3.7: motor ausente (antes caia en 'desconocido')
+    elseif ($t -match '(?i)no arranca:|no es una aplicaci.n v.lida|not a valid win32|cannot be run') { $clase = 'no-arranca'; $reint = $false }   # 2.3.8: el ejecutable existe pero no se puede iniciar
     elseif ($t -match '(?i)contener un secreto|nombre de archivo secreto') { $clase = 'secreto-bloqueado'; $reint = $false }
     # 1.9.2: modelo-invalido va ANTES de timeout (un mensaje "invalid model ... timed out" no es reintentable) y ya no usa el generico "not recognized" (tambien lo dice PowerShell para un comando).
     elseif ($t -match '(?i)invalid model|unknown model|model.{0,40}(is )?not recognized|not recognized.{0,40}model|modelo.{0,12}(invalido|no reconocido)') { $clase = 'modelo-invalido'; $reint = $false }
@@ -559,7 +560,7 @@ function Get-Historial {
 # Sin ej no se puede distinguir de dos registros legitimos iguales (mismo segundo): esas se cuentan todas, como antes.
 function Test-LineaNueva([hashtable]$Vistas, [string]$Linea) {
     if (-not $Linea.Trim()) { return $false }
-    if ($Linea -notmatch '"ej"s*:s*"[^"]+"') { return $true }
+    if ($Linea -notmatch '"ej"\s*:\s*"[^"]+"') { return $true }   # 2.3.8 (auditoria Codex): antes "s*" literal, no reconocia espacios
     if ($Vistas.ContainsKey($Linea)) { return $false }
     $Vistas[$Linea] = 1; return $true
 }
@@ -611,7 +612,8 @@ function Invoke-ConTimeout {
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.RedirectStandardInput = $true; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
     $psi.StandardOutputEncoding = [Text.Encoding]::UTF8; $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
     $inicioP = (Get-Date).AddSeconds(-2)
-    $p = [Diagnostics.Process]::Start($psi)
+    # 2.3.8 (Codex #4): un ejecutable que no arranca (no es una app valida, sin permiso, borrado) NO debe lanzar una excepcion cruda: se devuelve un resultado clasificable (codigo 126, arranque=$false).
+    try { $p = [Diagnostics.Process]::Start($psi) } catch { return @{ salida = ''; error = "no arranca: $($_.Exception.Message)"; codigo = 126; timeout = $false; arranque = $false } }
     try { $p.StandardInput.Close() } catch { }  # 2.0: cerrar stdin para que codex/agy no esperen entrada (cuelgue bajo Start-Job)
     $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()
     if (-not $p.WaitForExit($Segundos * 1000)) {
