@@ -17,7 +17,7 @@ const salida = process.argv[2] || join(aqui, '..', 'evidencias', 'v2.3.0', 'vist
 writeFileSync(join(dir, 'gen.ts'), `import * as L from './lib.ts'
 import { writeFileSync } from 'node:fs'
 const W = 416
-const kp = [{v:'12',r:'tokens totales',c:L.T.violeta},{v:'≈ 1,2 M',r:'ahorro estimado',c:L.T.okSuave,d:'tokens ahorrados · delegado − coordinación'},{v:'62 %',r:'ahorro por chat',c:L.T.ahorro,d:'ahorro ÷ trabajo delegado (estimado)'},{v:'300',r:'costo estimado',c:L.T.ambar,d:'coordinar a Claude'}]
+const kp = [{v:'12',r:'tokens totales',c:L.T.violeta},{v:'≈ 1,2 M',r:'ahorro estimado',c:L.T.okSuave,d:'tokens ahorrados · delegado − coordinación'},{v:'62 %',r:'ahorro por chat',c:L.T.ahorro,d:'% del tráfico del chat · estimado'},{v:'300',r:'costo estimado',c:L.T.ambar,d:'coordinar a Claude'}]
 const ser = [{k:'a',l:'Delegado',c:'#22d3ee',t:'real' as const,v:[1,3,2,5,4,0,2,6]},{k:'b',l:'Claude est.',c:'#fb7185',t:'estimado' as const,v:[2,4,3,6,5,1,3,7]}]
 const partes: [string,string][] = [
  ['cabecera', L.svgCabecera(W,true,false)],

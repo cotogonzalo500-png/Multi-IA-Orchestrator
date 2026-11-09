@@ -155,7 +155,7 @@ test('Chats: sin resumen general no se dibujan KPI inventados', async ($, on) =>
 test('Sistema: KPI de estado (modo, esfuerzo, intensidad, versión) y controles viejos', async ($, on) => {
   const ui = await montarSec($, on, 'sistema')
   const alt = String((await svgAlt(ui, /^Estado del sistema/))?.props?.alt)
-  expect(alt).toMatch(/Elección de motores Automático; Esfuerzo general auto; Intensidad global .+; Versión v2\.3\.3/)
+  expect(alt).toMatch(/Elección de motores Automático; Esfuerzo general auto; Intensidad global .+; Versión v2\.3\.5/)
   expect(await ui.find({ type: 'Button', text: /Reiniciar Claude/ })).toBeTruthy()
   expect(await ui.find({ type: 'Button', text: /Cambiar/ })).toBeTruthy()
   await ui.unmount()
@@ -229,7 +229,7 @@ test('Ahorro por chat: muestra solo los datos del chat actual (aislado del otro 
   vistaYDatos(on, {}, { chats: chatsConDatos('chat-A') })
   const ui = await montar($)
   const a = await altKpi(ui)
-  expect(a).toMatch(/Ahorro por chat 50 %/)   // chat-A: costo 500 / trabajo 1.000
+  expect(a).toMatch(/Ahorro por chat 6 %/)   // 2.3.5 chat-A: (1.000 − 500) / (1.000 delegado + 7.000 Claude real) = 6 %
   await ui.unmount()
 })
 test('Ahorro por chat: con chat-B como actual cambia el valor', async ($, on) => {
@@ -237,7 +237,7 @@ test('Ahorro por chat: con chat-B como actual cambia el valor', async ($, on) =>
   const ui = await montar($)
   const a = await altKpi(ui)
   expect(a).toMatch(/Ahorro por chat /)
-  expect(a).not.toMatch(/Ahorro por chat 50 %/)
+  expect(a).not.toMatch(/Ahorro por chat 6 %/)
   await ui.unmount()
 })
 test('Ahorro por chat: un chat conocido sin delegaciones muestra 0 % (dato real), no «No determinable»', async ($, on) => {
@@ -320,7 +320,7 @@ test('Intensidad: «Heredar global» quita la preferencia solo de este chat', as
 test('Pixel Pro: la cabecera lleva la mascota pixel Chispa (naranja, crispEdges) y ninguna hoja', async ($, on) => {
   vistaYDatos(on, {})
   const ui = await montar($)
-  const cab = await svgAlt(ui, /^Multi-IA 2\.3\.3 /)
+  const cab = await svgAlt(ui, /^Multi-IA 2\.3\.5 /)
   const src = String(cab?.props?.source ?? '')
   expect(src).toContain('Chispa, mascota Multi-IA')
   expect(src).toContain('#ff9b38')
@@ -357,7 +357,7 @@ test('UX 2.3.0: un ahorro negativo se muestra con signo (no se esconde como 0)',
   const neg = { shape: 'chats-1', value: { ...chatsConDatos('chat-N').value, j: { ...chatsConDatos('chat-N').value.j, chats: [chatProp('chat-N', 1, 200, null, 1000, 500)] } } }
   vistaYDatos(on, {}, { chats: neg })
   const ui = await montar($)
-  expect(await altKpi(ui)).toMatch(/Ahorro por chat -150 %/)
+  expect(await altKpi(ui)).toMatch(/Ahorro por chat -25 %/)
   await ui.unmount()
 })
 test('UX 2.3.0: el texto accesible del gráfico no anuncia las series ocultas', async ($, on) => {

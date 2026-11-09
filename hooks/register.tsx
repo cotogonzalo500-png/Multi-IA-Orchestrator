@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '2.3.3'
+const VERSION = '2.3.5'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -1223,7 +1223,7 @@ export const register: Register = on => {
           { v: cos === null ? 's/d' : fmt(cos), r: 'costo estimado', c: T.ambar },
           { v: aho === null ? nd : '≈ ' + fmt(aho), r: 'ahorro estimado', c: (aho ?? 0) < 0 ? T.aviso : T.okSuave },
           { v: c ? String(ejN) : 's/d', r: 'ejecuciones', c: T.cian },
-          { v: sinDeleg ? '0 %' : aho === null || !trab ? nd : Math.round(aho * 100 / trab) + ' %', r: 'ahorro por chat', c: T.ahorro },
+          { v: sinDeleg ? '0 %' : aho === null || !trab || tok === null ? nd : Math.round(aho * 100 / (trab + tok)) + ' %', r: 'ahorro por chat', c: T.ahorro },   // 2.3.5: sobre TODO el tráfico del chat (Claude real + delegado), no solo sobre lo delegado
           { v: 's/d', r: 'recuperaciones', c: T.magenta },
         ]
       }
@@ -1236,7 +1236,7 @@ export const register: Register = on => {
         { v: conCosto ? fmt(costo) : 's/d', r: 'costo estimado', c: T.ambar },
         { v: conCosto ? '≈ ' + fmt(netoK) : nd, r: 'ahorro estimado', c: conCosto && netoK < 0 ? T.aviso : T.okSuave },
         { v: ef ? String(ef.exitosas + ef.fallidas) : 's/d', r: 'ejecuciones', c: T.cian },
-        { v: conCosto && deleg > 0 ? Math.round(netoK * 100 / deleg) + ' %' : nd, r: 'ahorro por chat (agregado)', c: T.ahorro },
+        { v: conCosto && deleg > 0 && sumC + deleg > 0 ? Math.round(netoK * 100 / (sumC + deleg)) + ' %' : nd, r: 'ahorro por chat (agregado)', c: T.ahorro },
         { v: ef ? String(ef.fallas_recuperadas) : 's/d', r: 'recuperaciones', c: T.magenta },
       ]
     }
@@ -1247,7 +1247,7 @@ export const register: Register = on => {
     const kpiCuatro = [
       { v: sinD(kG[0].v) ? 'Sin datos' : kG[0].v, r: 'Tokens totales', c: T.violeta, ic: 'chip', d: 'Claude + delegado (global)' },
       { v: sinD(kG[4].v) ? 'Sin datos' : kG[4].v, r: 'Tokens ahorrados', c: T.okSuave, ic: 'rayo', d: nDel + (nDel === 1 ? ' delegación' : ' delegaciones') },
-      { v: sinD(kC[6].v) ? 'Sin datos' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: 'este chat · estimado' },
+      { v: sinD(kC[6].v) ? 'Sin datos' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: '% del tráfico del chat · estimado' },
       { v: sinD(kG[3].v) ? 'Sin datos' : kG[3].v, r: 'Costo estimado', c: T.ambar, ic: 'monedas', d: 'tokens de Claude (coordinar)' },
     ]
     const kpiCols = 2, mitad = centro ? Math.floor(anchoU * 0.49) : anchoU

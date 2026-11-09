@@ -19,10 +19,10 @@ $f = Join-Path $tmp 'uso.jsonl'; $rows = foreach ($i in 1..1500) { (@{ fecha = (
 [IO.File]::WriteAllLines($f, [string[]]$rows)
 $res += Stat 'consumo.ps1 con 1500 filas de uso' (1..$N | ForEach-Object { Run 'consumo.ps1' @() })
 # varias a la vez
-$conc = foreach ($k in 1..5) { $sw = [Diagnostics.Stopwatch]::StartNew(); $jobs = 1..4 | ForEach-Object { Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $sc 'elegir.ps1'), '-Tarea', 'codigo') -WindowStyle Hidden -PassThru }; $jobs | Wait-Process; $sw.Stop(); [math]::Round($sw.Elapsed.TotalMilliseconds) }
+$conc = foreach ($k in 1..5) { $sw = [Diagnostics.Stopwatch]::StartNew(); $jobs = 1..4 | ForEach-Object { Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $sc 'elegir.ps1') + '"'), '-Tarea', 'codigo') -WindowStyle Hidden -PassThru }; $jobs | Wait-Process; $sw.Stop(); [math]::Round($sw.Elapsed.TotalMilliseconds) }
 $res += Stat '4 elegir.ps1 simultaneos (tiempo total)' $conc
 # RAM pico / CPU de una corrida
-$p = Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $sc 'elegir.ps1'), '-Tarea', 'codigo') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $tmp 'o.txt')
+$p = Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $sc 'elegir.ps1') + '"'), '-Tarea', 'codigo') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $tmp 'o.txt')
 $pico = 0; while (-not $p.HasExited) { try { $p.Refresh(); if ($p.WorkingSet64 -gt $pico) { $pico = $p.WorkingSet64 } } catch { }; Start-Sleep -Milliseconds 20 }
 $cpu = try { [math]::Round($p.TotalProcessorTime.TotalMilliseconds) } catch { $null }
 $o = [ordered]@{ etiqueta = $Etiqueta; raiz = $Raiz; fecha = (Get-Date).ToString('s'); equipo = $env:COMPUTERNAME; ps = $PSVersionTable.PSVersion.ToString(); resultados = $res; ram_pico_mb_elegir = [math]::Round($pico / 1MB, 1); cpu_ms_elegir = $cpu; nota = 'RAM pico muestreada cada 20 ms (puede subestimar); CPU = TotalProcessorTime del proceso.' }

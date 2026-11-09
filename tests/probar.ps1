@@ -681,7 +681,7 @@ T 'exportar-historial.ps1: CSV (BOM, escape RFC 4180) y JSON, filas, filtros y o
 Write-Host "== V3: codificacion UTF-8 de config.json"
 T 'config.json: Save-Config/Get-Config conservan acentos y punto medio (sin mojibake)' {
     $et = "Google $([char]0xB7) Antigravity ñandú áéíóú"
-    $cmd = ". '$sc\_comun.ps1'; `$c = Get-Config; `$c.cuentas[1].etiqueta = '$et'; Save-Config `$c; (Get-Config).cuentas[1].etiqueta"
+    $cmd = ". '$($sc.Replace('''',''''''))\_comun.ps1'; `$c = Get-Config; `$c.cuentas[1].etiqueta = '$et'; Save-Config `$c; (Get-Config).cuentas[1].etiqueta"
     $o = (& powershell -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String).Trim()
     $bytes = [IO.File]::ReadAllBytes((Join-Path $tmp 'config.json'))
     $txt = [Text.Encoding]::UTF8.GetString($bytes)
@@ -713,7 +713,7 @@ T 'panel.ps1: .alterna sin min-width fijo y con wrap (no se corta en 320 px)' {
 }
 T '_comun.ps1: escritura concurrente (4 procesos x 25) no pierde ni corrompe lineas de resultados.jsonl' {
     $dc = Join-Path $tmp 'concurrente'; New-Item -ItemType Directory -Force $dc | Out-Null
-    $ps = 1..4 | ForEach-Object { $n = $_; Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-Command', "`$env:MULTIIA_DATOS='$dc'; . '$PSScriptRoot\..\scripts\_comun.ps1'; 1..25|%{ Add-Evento -Tipo 'fin' -Destino codex -Tarea texto -Id ('p$n-'+`$_) }" }
+    $ps = 1..4 | ForEach-Object { $n = $_; Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-Command', "`$env:MULTIIA_DATOS='$($dc.Replace('''',''''''))'; . '$($PSScriptRoot.Replace('''',''''''))\..\scripts\_comun.ps1'; 1..25|%{ Add-Evento -Tipo 'fin' -Destino codex -Tarea texto -Id ('p$n-'+`$_) }" }
     $ps | Wait-Process -Timeout 120
     $r = @(Get-Content (Join-Path $dc 'resultados.jsonl'))
     Afirmar ($r.Count -eq 100) "esperaba 100 resultados, hay $($r.Count)"
@@ -772,7 +772,7 @@ T 'Enter-Candado: alta atomica (el segundo proceso no lo toma) y Exit solo borra
     try {
         . (Join-Path $sc '_comun.ps1')
         Afirmar (Enter-Candado 'recurso-x') 'no tomo el candado libre'
-        $o = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-Command', "`$env:MULTIIA_DATOS='$dl'; . '$sc\_comun.ps1'; if (Enter-Candado 'recurso-x') { exit 0 } else { exit 9 }"
+        $o = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-Command', "`$env:MULTIIA_DATOS='$($dl.Replace('''',''''''))'; . '$($sc.Replace('''',''''''))\_comun.ps1'; if (Enter-Candado 'recurso-x') { exit 0 } else { exit 9 }"
         $o | Wait-Process -Timeout 60
         Afirmar ($o.ExitCode -eq 9) "otro proceso lo tomo (salida $($o.ExitCode))"
         Exit-Candado 'recurso-x'
@@ -1257,7 +1257,7 @@ T 'codex 1.9.2 (concurrencia): Add-Decision recorta dentro del candado; 4 proces
     $dc = Join-Path $tmp 'dec-conc'; Remove-Item $dc -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force $dc | Out-Null
     $pre = 1..1790 | ForEach-Object { '{"id":"pre-' + $_ + '","destino":"codex"}' }
     [IO.File]::WriteAllLines((Join-Path $dc 'decisiones.jsonl'), [string[]]$pre, (New-Object Text.UTF8Encoding($false)))
-    $ps = 1..4 | ForEach-Object { $n = $_; Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-Command', "`$env:MULTIIA_DATOS='$dc'; . '$PSScriptRoot\..\scripts\_comun.ps1'; 1..20|%{ Add-Decision -Id ('c$n-'+`$_) -Destino codex -Tarea texto }" }
+    $ps = 1..4 | ForEach-Object { $n = $_; Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile', '-Command', "`$env:MULTIIA_DATOS='$($dc.Replace('''',''''''))'; . '$($PSScriptRoot.Replace('''',''''''))\..\scripts\_comun.ps1'; 1..20|%{ Add-Decision -Id ('c$n-'+`$_) -Destino codex -Tarea texto }" }
     $ps | ForEach-Object { [void]$_.WaitForExit(120000) }
     $l = @(Get-Content (Join-Path $dc 'decisiones.jsonl') -Encoding UTF8 | Where-Object { $_.Trim() })
     # con el candado el resultado es determinista: 1790 + 80; al pasar 1800 se recorta a 1500 (el 11.o agregado) y siguen 69 mas = 1569. Sin candado se pierden lineas.
@@ -1843,7 +1843,7 @@ T '2.3.1 auditoria Codex #13: Find-AgyExe respeta MULTIIA_AGY_EXE y no rompe sin
     $w = Join-Path $env:SystemRoot 'System32\whoami.exe'
     $viejoA = $env:MULTIIA_AGY_EXE; $env:MULTIIA_AGY_EXE = $w
     try { Afirmar ((Find-AgyExe) -eq $w) "no uso MULTIIA_AGY_EXE: $(Find-AgyExe)" } finally { $env:MULTIIA_AGY_EXE = $viejoA }
-    $o = (& powershell -NoProfile -Command "`$env:LOCALAPPDATA=''; `$env:MULTIIA_AGY_EXE=''; `$env:MULTIIA_DATOS='$tmp'; . '$sc\_comun.ps1'; try { `$r = Find-AgyExe; 'OK:' + [string]`$r } catch { 'ERROR:' + `$_ }" 2>&1 | Out-String)
+    $o = (& powershell -NoProfile -Command "`$env:LOCALAPPDATA=''; `$env:MULTIIA_AGY_EXE=''; `$env:MULTIIA_DATOS='$tmp'; . '$($sc.Replace('''',''''''))\_comun.ps1'; try { `$r = Find-AgyExe; 'OK:' + [string]`$r } catch { 'ERROR:' + `$_ }" 2>&1 | Out-String)
     Afirmar ($o -match 'OK:' -and $o -notmatch 'ERROR:') "rompio sin LOCALAPPDATA: $o"
     foreach ($n in 'delegar-agy.ps1', 'motores.ps1', 'conexiones.ps1') { Afirmar ((Get-Content (Join-Path $sc $n) -Raw) -match 'Find-AgyExe') "$n no usa la deteccion unica" }
 }
