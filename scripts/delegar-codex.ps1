@@ -23,7 +23,7 @@ if (Test-Secreto $Prompt) { Write-Error 'El pedido (prompt o memoria) parece con
 
 # El hash de la carpeta cambia con cada actualización de Codex: tomamos la más reciente.
 $codex = Find-CodexExe
-if (-not $codex) { Write-Error "No encontré codex.exe (ni la app de Codex ni el CLI de npm @openai/codex). Corré /configurar para ver cómo instalarlo."; exit 1 }
+if (-not $codex) { $global:MIA_Causa = Get-ClaseError -Texto 'No encontré codex.exe' -Salida 1; Write-Error "No encontré codex.exe (ni la app de Codex ni el CLI de npm @openai/codex). Corré /configurar para ver cómo instalarlo."; exit 1 }
 
 $cfg = Get-Config
 $cta = @(Get-CuentasActivas $cfg 'codex' | Where-Object { $_.id -eq $Cuenta })[0]
@@ -37,7 +37,7 @@ $homeViejo = $env:CODEX_HOME
 if ($cta.home) { $env:CODEX_HOME = $cta.home }   # otra cuenta de ChatGPT = otra carpeta de sesion
 # Verificacion previa: sin sesion Codex reintenta varias veces antes de fallar; asi falla al instante y con el motivo.
 $estado = Invoke-ConTimeout $codex @('login', 'status') 20
-if (-not $estado -or (($estado.salida + $estado.error) -notmatch 'Logged in')) {
+if (-not $estado -or $estado.codigo -ne 0 -or (($estado.salida + $estado.error) -match '(?i)not logged') -or (($estado.salida + $estado.error) -notmatch '(?i)logged in')) {
     $env:CODEX_HOME = $homeViejo
     $msg = "La cuenta '$Cuenta' de Codex no tiene sesión. Abrí la app de Codex e iniciá sesión con ChatGPT$(if ($cta.home) { " (o: `$env:CODEX_HOME='$($cta.home)'; codex login)" })."
     Set-CausaActual -Texto $msg -Salida 1
@@ -51,12 +51,13 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 # `--` evita que un prompt con "-" parezca opción.
 $origenAislado = $null
 if ($Aislar) {
-    # Copia de trabajo en ~\CLAUDE\_delegado\<fecha> (no en %TEMP%: alli Codex puede escribir fuera de la carpeta). Sin .git/node_modules/etc., max 100 MB.
+    # Copia de trabajo en <carpeta de datos>\_delegado\<fecha> (2.3.7: antes ~\CLAUDE\_delegado, que ensuciaba el perfil de un usuario nuevo) (no en %TEMP%: alli Codex puede escribir fuera de la carpeta). Sin .git/node_modules/etc., max 100 MB.
     $origenAislado = (Resolve-Path -LiteralPath $Carpeta).Path.TrimEnd('\')
     $excluir = @('.git', 'node_modules', '__pycache__', '.venv', '_delegado')
-    $arch = @(Get-ChildItem -LiteralPath $origenAislado -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $rel = $_.FullName.Substring($origenAislado.Length + 1); -not ($excluir | Where-Object { $rel -like "$_\*" -or $rel -like "*\$_\*" }) })
+    $nombreSecreto = '(?i)^(\.env.*|.*\.(pem|key|pfx|p12|kdbx)|id_rsa.*|.*credential.*|.*secret.*|.*password.*|.*cookie.*|auth\.json|.*token.*|\.netrc|\.npmrc)$'   # 2.3.7: la copia aislada no duplica credenciales
+    $arch = @(Get-ChildItem -LiteralPath $origenAislado -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch $nombreSecreto } | Where-Object { $rel = $_.FullName.Substring($origenAislado.Length + 1); -not ($excluir | Where-Object { $rel -like "$_\*" -or $rel -like "*\$_\*" }) })
     if ((($arch | Measure-Object Length -Sum).Sum / 1MB) -gt 100) { $env:CODEX_HOME = $homeViejo; Write-Error "La carpeta pesa más de 100 MB: -Aislar no la copia."; exit 1 }
-    $Carpeta = Join-Path $env:USERPROFILE ('CLAUDE\_delegado\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 4))
+    $Carpeta = Join-Path $script:DatosDir ('_delegado\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 4))
     foreach ($f in $arch) { $d = Join-Path $Carpeta $f.FullName.Substring($origenAislado.Length + 1); New-Item -ItemType Directory -Force (Split-Path $d) | Out-Null; Copy-Item -LiteralPath $f.FullName -Destination $d }
     $Escribir = $true; $sandbox = 'workspace-write'
 }
@@ -102,11 +103,11 @@ if ($origenAislado) {
     }
     Write-Output "[aislado] copia de trabajo: $Carpeta"
     Write-Output $(if ($camb) { "[aislado] cambios ($($camb.Count)):`n" + ($camb -join "`n") } else { '[aislado] Codex no cambió ningún archivo.' })
-    Write-Output "[aislado] el original NO se tocó. Revisar y, con OK del usuario, copiar los archivos deseados al original."
+    Write-Output "[aislado] el original NO se tocó. Revisar y, con tu OK, copiar los archivos deseados al original."
 }
 if ($res.timeout) { $errores += "timeout duro de proceso tras $minTope min" }
 if ($errores -or ($salida -ne 0 -and $errTxt.Trim())) { Set-CausaActual -Texto (($errores -join '; ') + ' ' + $errTxt) -Salida $salida }
-if ($errores) { $pista = if (($errores -join ' ') -match '(?i)log ?in|auth|credential|sign') { ' PISTA: esta cuenta de Codex no tiene sesión (abrí la app de Codex o corré codex login con su CODEX_HOME).' } else { '' }; Write-Error ("Codex: " + ($errores -join '; ') + $pista) }
+if ($errores) { $pista = if (($errores -join ' ') -match '(?i)log ?in|auth|credential|sign') { ' PISTA: esta cuenta de Codex no tiene sesión (abrí la app de Codex o corré codex login con su CODEX_HOME).' } else { '' }; Write-Error (Hide-Secretos ("Codex: " + ($errores -join '; ') + $pista)) }
 if ($salida -eq 0 -and -not $texto) { Write-Error "Codex no devolvió respuesta."; $salida = 1; Set-CausaActual -Texto 'Codex no devolvió respuesta' -Salida 1 }
 $mc = Get-ModeloCodex -ThreadId $threadId -CodexHome $homeUsado
 $global:MIA_Modelo = [ordered]@{ confirmado = $(if ($mc) { $mc.modelo } else { '' }); fuente = $(if ($mc) { $mc.fuente } else { '' }); ejecutor_id = $threadId }

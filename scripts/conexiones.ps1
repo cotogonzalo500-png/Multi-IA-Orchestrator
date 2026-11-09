@@ -63,7 +63,7 @@ foreach ($id in 'codex', 'agy') {
             if (Vigente $reg.auth 3600) { $aut = $reg.auth } else {
                 $r = Invoke-ConTimeout $exe @('login', 'status') 20
                 $txt = if ($r) { (([string]$r.salida) + ' ' + ([string]$r.error)).Trim() } else { '' }
-                $aut = [ordered]@{ fecha = $ahora.ToString('s'); valor = $(if (-not $r) { $null } elseif ($r.codigo -eq 0 -and $txt -match '(?i)logged in') { 'sesion iniciada' } elseif ($txt -match '(?i)not logged') { 'sin sesion' } else { $null }); texto = $(if ($txt.Length -gt 120) { $txt.Substring(0, 120) } else { $txt }) }
+                $aut = [ordered]@{ fecha = $ahora.ToString('s'); valor = $(if (-not $r) { $null } elseif ($r.codigo -eq 0 -and $txt -match '(?i)logged in') { 'sesion iniciada' } elseif ($txt -match '(?i)not logged') { 'sin sesion' } else { $null }); texto = $(Hide-Secretos $(if ($txt.Length -gt 120) { $txt.Substring(0, 120) } else { $txt })) }
                 $nuevo.auth = $aut
             }
         }

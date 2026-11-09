@@ -36,11 +36,11 @@ if (-not $Modelo) {
 }
 
 $agy = Find-AgyExe   # 2.3.1 (Codex #13): deteccion unica (MULTIIA_AGY_EXE > LOCALAPPDATA > PATH)
-if (-not $agy) { Write-Error "No encontre agy.exe. Instalalo desde https://antigravity.google/download"; exit 1 }
+if (-not $agy) { $global:MIA_Causa = Get-ClaseError -Texto 'No encontre agy.exe' -Salida 1; Write-Error "No encontre agy.exe. Instalalo desde https://antigravity.google/download (despues corre /configurar)."; exit 1 }
 
 if ($Archivo) {
     # Regla 2 (nunca secretos): se rechazan por nombre, por contenido y los binarios. Se informa que archivos salieron.
-    $nombreSecreto = '(?i)(^|[\\/])(\.env.*|.*\.(pem|key|pfx|p12|kdbx)|id_rsa.*|.*credential.*|.*secret.*|.*password.*)$'
+    $nombreSecreto = '(?i)(^|[\\/])(\.env.*|.*\.(pem|key|pfx|p12|kdbx)|id_rsa.*|.*credential.*|.*secret.*|.*password.*|.*cookie.*|auth\.json|.*token.*|.*session.*\.json|\.netrc|\.npmrc)$'
     $bloques = @(); $nombres = @(); $total = 0; $leidos = @()
     foreach ($ruta in $Archivo) {
         $r = Resolve-Path -LiteralPath $ruta -ErrorAction SilentlyContinue
@@ -137,11 +137,11 @@ if ($r) {
     else {
         $d = ($crudo -join ' '); $pista = if ($d -match '(?i)auth|login|credential|unauthenticated|sign.?in') { ' PISTA: agy no tiene sesión, abrilo y logueate con Google.' } else { '' }
         $msg = "agy: " + $r.status + " " + $d.Substring(0, [math]::Min(300, $d.Length)) + " (modelo: $Modelo)." + $pista
-        Write-Error $msg; if ($salida -eq 0) { $salida = 1 }; Set-CausaActual -Texto "$(Get-TextoFalloAgy $r $errTxt) $msg" -Salida $salida
+        Write-Error (Hide-Secretos $msg); if ($salida -eq 0) { $salida = 1 }; Set-CausaActual -Texto "$(Get-TextoFalloAgy $r $errTxt) $msg" -Salida $salida
     }
 } elseif (-not $global:MIA_Timeout) {
     $msg = "agy no devolvió JSON: " + (($crudo | Select-Object -First 3) -join ' ')
-    Write-Error $msg; if ($salida -eq 0) { $salida = 1 }; Set-CausaActual -Texto "$errTxt $msg" -Salida $salida
+    Write-Error (Hide-Secretos $msg); if ($salida -eq 0) { $salida = 1 }; Set-CausaActual -Texto "$errTxt $msg" -Salida $salida
 }
 $convId = if ($r -and $r.conversation_id) { [string]$r.conversation_id } else { '' }
 $ma = Get-ModeloAgy -ConversationId $convId

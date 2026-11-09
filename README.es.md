@@ -32,7 +32,7 @@ Sin Codex ni Antigravity el plugin igual se instala y funciona, pero no puede de
 Después reiniciá Claude Code y corré `/configurar`. Los detalles están en [INSTALLATION.md](INSTALLATION.md).
 
 ## Conectar Codex y Antigravity
-Cada persona inicia sesión **con su propia cuenta**, desde el CLI oficial de cada proveedor. El plugin nunca lee, copia ni guarda tokens, cookies ni archivos de sesión. Solo mira si el CLI está instalado, qué versión es y, en el caso de Codex, qué responde `codex login status`. Antigravity no tiene una forma gratuita de consultar si iniciaste sesión: `/configurar probar` le manda una tarea mínima real para confirmarlo, y eso gasta un poco del cupo de ese motor.
+Cada persona inicia sesión **con su propia cuenta**, desde el CLI oficial de cada proveedor. El plugin nunca lee, copia ni guarda tokens, cookies ni credenciales. Para las estadísticas lee localmente los registros de sesión de Codex solo para extraer el modelo usado y el consumo (metadatos; no los envía a ningún lado). Además mira si el CLI está instalado, qué versión es y, en el caso de Codex, qué responde `codex login status`. Antigravity no tiene una forma gratuita de consultar si iniciaste sesión: `/configurar probar` le manda una tarea mínima real para confirmarlo, y eso gasta un poco del cupo de ese motor.
 
 ## Panel
 El panel **Multi-IA · consumo** se abre solo al lado del chat cuando empieza una sesión. Si lo cerraste, corré `/panel-ia` para volver a abrirlo. El botón **⤢ Expandir** abre la vista completa (*Multi-IA · Centro de control*). Solo lee datos locales de tu carpeta de datos.
@@ -52,6 +52,8 @@ El panel **Multi-IA · consumo** se abre solo al lado del chat cuando empieza un
 | `/configurar` dice que falta node | Instalá Node.js 18+ y reiniciá Claude Code |
 | Codex aparece «No instalado» | `npm install -g @openai/codex`, abrí una terminal nueva y volvé a correr `/configurar` |
 | Codex aparece «Autenticacion requerida» | Corré `codex login` en una terminal |
+| PowerShell dice «la ejecución de scripts está deshabilitada» al correr `codex` | Usá `codex.cmd login` y `codex.cmd login status`; no hace falta ser administrador ni cambiar ninguna política |
+| El plugin dice que un motor «no está instalado o no tiene cuenta activa» | Esa tarea la hace Claude. Corré `/configurar` para ver cómo instalar ese motor e iniciar sesión |
 | Antigravity devuelve respuestas vacías | Abrí `agy` una vez en una terminal, iniciá sesión y corré `/configurar probar` |
 | La configuración se corrompió | Corré `/configurar`: muestra el comando exacto con la ruta de tu instalación (`config.ps1 -Recuperar`) |
 | No se puede escribir en la carpeta de datos | Apuntá `MULTIIA_DATOS` a una carpeta tuya |

@@ -95,6 +95,8 @@ Add-Decision -Id $idEj -Tarea $Tarea -Destino $sel.destino -Cuenta $sel.cuenta -
 if ($codigo -ne 0 -and $codigo -ne 2 -and -not $Critico -and -not $Cruzar -and -not $env:MULTIIA_SIN_RESPALDO) {
     $altD = if ($sel.destino -eq 'codex') { 'agy' } else { 'codex' }
     $ctaAlt = @(Get-CuentasActivas (Get-Config) $altD)[0]
+    $altInst = if ($altD -eq 'agy') { [bool](Find-AgyExe) } else { [bool](Find-CodexExe) }
+    if ($ctaAlt -and -not $altInst) { Write-Output "[sin respaldo: $altD no está instalado; corré /configurar para ver cómo instalarlo]"; $ctaAlt = $null }
     if ($ctaAlt) {
         $idAlt = "$idEj-r"; $global:MIA_Conf = ''; $global:MIA_Modelo = $null; $global:MIA_IdEj = $idAlt
         # v1.9.0: el respaldo en agy usa esfuerzo medium (argon-high era el mas lento y propenso a timeout)
@@ -126,6 +128,7 @@ if ($codigo -ne 0 -and $codigo -ne 2 -and -not $Critico -and -not $Cruzar -and -
         if ($cod2 -eq 0) { $ejecutor = $altD }
     }
 }
+if ($codigo -ne 0 -and $global:MIA_Causa) { $ay = Get-AyudaClase $global:MIA_Causa.clase; if ($ay) { Write-Output "[ayuda: $ay]" } }   # 2.3.7: cada fallo explica como solucionarlo
 if ($ejecutor -eq 'agy' -and $Prompt.Length -lt 1200 -and -not $Archivo -and $codigo -eq 0) { Write-Output "[aviso: cada llamada a Antigravity gasta ~6.800 tokens fijos de arranque; para tareas chicas como esta conviene resolver directo]" }
 if ($ejecutor -eq 'codex' -and $Tarea -eq 'codigo' -and -not $Aislar -and $codigo -eq 0) { Write-Output "[aviso: Codex corrio en SOLO LECTURA: no crea ni modifica archivos. Para que implemente, repetí con -Aislar -Carpeta <ruta> (trabaja en una copia y lista los cambios)]" }
 

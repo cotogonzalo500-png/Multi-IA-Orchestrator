@@ -21,7 +21,10 @@ if ($Critico) { $Calidad = 'maxima' } elseif (-not $Calidad) { $Calidad = if ($c
 if ($cfg.activo -eq $false) { [pscustomobject]@{ modo = $cfg.modo; calidad = $Calidad; destino = 'apagado'; cuenta = ''; perfil = ''; modelo = ''; esfuerzo = ''; motivo = 'Multi-IA está APAGADO (interruptor del panel o /multi-ia): no se delega, resolvelo vos directo'; segundo = $null } | ConvertTo-Json -Compress; exit 0 }
 if ($Tarea -eq 'imagen') { [pscustomobject]@{ modo = $cfg.modo; calidad = $Calidad; destino = 'ninguno'; cuenta = ''; perfil = ''; modelo = ''; esfuerzo = ''; motivo = 'Imagen, video o audio: ningún motor delegado (Codex, Gemini, Claude y GPT-OSS vía Antigravity) los genera. Usar otra herramienta o decírselo al usuario.'; segundo = $null } | ConvertTo-Json -Compress; exit 0 }
 $bloqueo = [int]$cfg.ahorro.umbral_bloqueo
-$codexCtas = @(Get-CuentasActivas $cfg 'codex'); $agyCtas = @(Get-CuentasActivas $cfg 'agy')
+# 2.3.7: una cuenta activa en la config NO alcanza: si el motor no esta instalado en ESTA PC no se lo elige (antes un usuario nuevo
+# sin Codex veia un error crudo de PowerShell en vez de que Claude lo resolviera o se le explicara como instalarlo).
+$codexCtas = if (Find-CodexExe) { @(Get-CuentasActivas $cfg 'codex') } else { @() }
+$agyCtas = if (Find-AgyExe) { @(Get-CuentasActivas $cfg 'agy') } else { @() }
 
 function Salida($destino, $cuenta, $perfil, $modelo, $esfuerzo, $motivo, $segundo) {
     # Factor de historial: con 3 o mas ejecuciones reales de este motor en esta tarea, se muestra su tasa de exito (solo informa; no cambia el motor).
@@ -142,9 +145,13 @@ $perfilModelo = @{ texto = 'gemini-3.8-flash'; razonar = 'gemini-4-argon'; opus 
 $pool = @{ texto = 'Antigravity · Gemini'; razonar = 'Antigravity · Gemini'; opus = 'Antigravity · Claude/GPT'; sonnet = 'Antigravity · Claude/GPT' }
 
 if (-not $ConCupo) {
-    if ($plan.d -eq 'codex') { if ($codexCtas) { Salida 'codex' $codexCtas[0].id '' $plan.m $plan.e $plan.why $plan.seg }; SinDelegado 'No hay cuenta de Codex activa' }
+    if ($plan.d -eq 'codex') {
+        if ($codexCtas) { Salida 'codex' $codexCtas[0].id '' $plan.m $plan.e $plan.why $plan.seg }
+        if ($agyCtas) { Salida 'agy' $agyCtas[0].id 'razonar' ($perfilModelo['razonar'] + '-' + $plan.e) $plan.e ('Codex no está instalado o no tiene cuenta activa: se usa Antigravity (Gemini) · ' + $plan.why) $plan.seg }   # 2.3.7
+        SinDelegado 'Codex no está instalado o no tiene cuenta activa (corré /configurar para ver cómo instalarlo)'
+    }
     if ($agyCtas) { Salida 'agy' $agyCtas[0].id $plan.p ($perfilModelo[$plan.p] + '-' + $plan.e) $plan.e $plan.why $plan.seg }
-    SinDelegado 'No hay cuenta de Antigravity activa'
+    SinDelegado 'Antigravity no está instalado o no tiene cuenta activa (corré /configurar)'
 }
 
 # ---- con cupo real: la mejor opcion que no pase el umbral de bloqueo
@@ -165,7 +172,7 @@ if ($plan.d -eq 'codex') {
     SinDelegado "Codex está al $bloqueo% o más, o sin cuenta activa"
 }
 # agy: en calidad maxima NO se baja de motor por cupo (se avisa); en las otras se prueban alternativas de otro grupo.
-if (-not $agyCtas) { SinDelegado 'No hay cuenta de Antigravity activa' }
+if (-not $agyCtas) { SinDelegado 'Antigravity no está instalado o no tiene cuenta activa (corré /configurar)' }
 $orden = if ($Calidad -eq 'maxima') { @($plan.p) } else { @($plan.p) + @('texto', 'razonar', 'sonnet', 'opus' | Where-Object { $_ -ne $plan.p -and $pool[$_] -ne $pool[$plan.p] }) }
 foreach ($p in $orden) {
     $g = $pool[$p]

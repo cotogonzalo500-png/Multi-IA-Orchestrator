@@ -19,7 +19,8 @@ claude plugin install multi-ia-orquestador@multi-ia
 ```
 Para probar desde una copia local (sin GitHub): `claude plugin marketplace add "C:\ruta\a\multi-ia-orquestador"` (con comillas si la ruta tiene espacios).
 
-Reiniciá Claude Code para que cargue los hooks y el panel.
+Los comandos que empiezan con `/plugin` se escriben **dentro de Claude Code**; los de `claude plugin ...` van en una terminal. Reiniciá Claude Code para que cargue los hooks y el panel. Para comprobar que quedó instalado, escribí `/multi-ia-orquestador:configurar` (si no aparece, repetí `claude plugin install multi-ia-orquestador@multi-ia` y revisá el mensaje de error).
+Si no tenés Claude Code o Node.js: Claude Code en https://code.claude.com/docs y Node.js (LTS) en https://nodejs.org. Comprobá con `claude --version` y `node --version`.
 
 ## 3. Primer inicio: `/configurar`
 El asistente:
@@ -38,9 +39,9 @@ npm install -g @openai/codex
 codex login
 codex login status
 ```
-Si PowerShell no deja correr `codex` por la política de ejecución (error «la ejecución de scripts está deshabilitada»), usá `codex.cmd login` y `codex.cmd login status`: no hace falta cambiar ninguna política ni ser administrador. También vale la app de escritorio de Codex. Si `codex.exe` está en otro lugar, definí `MULTIIA_CODEX_EXE` con la ruta completa.
+Si PowerShell no deja correr `codex` por la política de ejecución (error «la ejecución de scripts está deshabilitada»), usá `codex.cmd login` y `codex.cmd login status`: no hace falta cambiar ninguna política ni ser administrador. Si `npm` también está bloqueado, usá `npm.cmd install -g @openai/codex`. También vale la app de escritorio de Codex. Si `codex.exe` está en otro lugar, definí `MULTIIA_CODEX_EXE` con la ruta completa.
 
-**Antigravity (Google)**: instalalo siguiendo las instrucciones oficiales de Google Antigravity, abrí `agy` una vez en una terminal e iniciá sesión con tu cuenta. Para verificarlo, corré `/configurar probar`.
+**Antigravity (Google)**: instalalo siguiendo las instrucciones oficiales de Google Antigravity (https://antigravity.google/download), abrí `agy` una vez en una terminal e iniciá sesión con tu cuenta. Para verificarlo, corré `/configurar probar`.
 
 El login lo hace cada persona con su cuenta. El plugin no pide, no lee y no copia credenciales.
 

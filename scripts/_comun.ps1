@@ -60,7 +60,7 @@ function Get-HashMemoria {
 }
 
 # 2.3.1 (auditoria Codex #3 y #10): un solo patron de secretos para TODO lo que sale a otra IA (prompt final, memoria incluida) y para tachar registros.
-$script:RegexSecreto = 'AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{16,}|(?i)(bearer\s+[A-Za-z0-9._~+/=-]{16,}|["'']?(api[_-]?key|password|passwd|secret|token)["'']?\s*[:=]\s*[''"]?\S{8,})'
+$script:RegexSecreto = 'AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{16,}|(?i)(bearer\s+[A-Za-z0-9._~+/=-]{16,}|["'']?(api[_-]?key|password|passwd|secret|token|(set-)?cookie)["'']?\s*[:=]\s*[''"]?\S{8,})'
 function Test-Secreto([string]$Texto) { [bool]($Texto -and ($Texto -match $script:RegexSecreto)) }
 function Hide-Secretos([string]$Texto) {
     if (-not $Texto) { return $Texto }
@@ -330,6 +330,22 @@ function Test-Productivo { param($Fila) $o = [string]$Fila.origen; return ((-not
 # Entiende el bloque estructurado de agy (AGY_ERROR: {...}) y los textos de Codex. Devuelve @{ clase; causa; reintentable; fuente }.
 # Clases: timeout | modelo-invalido | autenticacion | cuota | respuesta-vacia | herramienta-denegada | secreto-bloqueado | args-largos | red | simulado | desconocido.
 # La causa es texto corto (max 240 caracteres) y nunca incluye el prompt.
+# 2.3.7: Get-AyudaClase devuelve QUE HACER para cada clase (se muestra al usuario cuando la delegacion falla).
+function Get-AyudaClase([string]$Clase, [string]$Motor = '') {
+    switch ($Clase) {
+        'no-instalado'         { 'El motor no esta instalado. Corre /configurar: te dice como instalarlo (Codex: npm install -g @openai/codex; Antigravity: CLI oficial de Google). Mientras tanto Claude hace la tarea.' }
+        'autenticacion'        { 'La sesion no esta iniciada o vencio. Inicia sesion de nuevo con TU cuenta: Codex -> "codex login" en una terminal; Antigravity -> abri "agy" una vez y logueate. Despues corre /configurar para verificar.' }
+        'cuota'                { 'Se agoto el cupo o el limite de ese proveedor. Espera a que se renueve, o usa /modo para pasar el trabajo al otro motor.' }
+        'red'                  { 'Fallo de conexion. Revisa tu internet/proxy/VPN y reintenta; si persiste, corre /configurar para ver el estado de cada motor.' }
+        'timeout'              { 'El motor tardo demasiado. Reintenta con una tarea mas chica o calidad economica.' }
+        'herramienta-denegada' { 'El motor no tuvo permiso para una accion (archivos/comandos). Revisa la carpeta indicada en -Carpeta y los permisos de Windows sobre ella.' }
+        'modelo-invalido'      { 'El modelo pedido no existe en tu cuenta. Usa /modo para volver a Automatico.' }
+        'respuesta-vacia'      { 'El motor no devolvio texto. Reintenta; si se repite, verifica que hayas iniciado sesion (/configurar probar) o usa /modo para pasar el trabajo al otro motor.' }
+        'truncado'             { 'La respuesta quedo cortada. Pedi una tarea mas chica o dividila en partes.' }
+        'args-largos'          { 'La tarea es demasiado larga para pasarla directo. Mandala como archivo (-Archivo) o dividila.' }
+        default                { 'No se pudo identificar la causa. Corre /configurar para ver el estado de cada motor; si sigue, reintenta o usa /modo para cambiar de motor.' }
+    }
+}
 function Get-ClaseError {
     param([string]$Texto = '', [int]$Salida = 1)
     $t = [string]$Texto
@@ -346,6 +362,7 @@ function Get-ClaseError {
     }
     $clase = 'desconocido'
     if ($t -match '\[SIMULADO\]|MULTIIA_SIMULAR') { $clase = 'simulado' }
+    elseif ($t -match '(?i)No encontr. (codex|agy)|agy no est. instalado|no se encontr. el ejecutable') { $clase = 'no-instalado'; $reint = $false }   # 2.3.7: motor ausente (antes caia en 'desconocido')
     elseif ($t -match '(?i)contener un secreto|nombre de archivo secreto') { $clase = 'secreto-bloqueado'; $reint = $false }
     # 1.9.2: modelo-invalido va ANTES de timeout (un mensaje "invalid model ... timed out" no es reintentable) y ya no usa el generico "not recognized" (tambien lo dice PowerShell para un comando).
     elseif ($t -match '(?i)invalid model|unknown model|model.{0,40}(is )?not recognized|not recognized.{0,40}model|modelo.{0,12}(invalido|no reconocido)') { $clase = 'modelo-invalido'; $reint = $false }

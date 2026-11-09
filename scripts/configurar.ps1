@@ -30,7 +30,7 @@ try {
     [IO.File]::WriteAllText($p, 'ok'); Remove-Item -LiteralPath $p -Force; $datosOk = $true
 } catch { $datosDet = "$($script:DatosDir) (sin permiso de escritura: $($_.Exception.Message))" }
 if ($script:AvisoDatos) { $datosDet = "$datosDet (aviso: $($script:AvisoDatos))" }
-Req 'datos' $datosOk $datosDet "No se puede escribir en $($script:DatosDir). Elegi otra carpeta con la variable de entorno MULTIIA_DATOS."
+Req 'datos' $datosOk $datosDet "No se puede escribir en $($script:DatosDir). Elegi una carpeta tuya (por ejemplo C:\Users\<tu-usuario>\Documentos\multi-ia-datos), ejecuta en una terminal: setx MULTIIA_DATOS `"<esa carpeta>`" , reinicia Claude Code y volve a correr /configurar."
 
 # 3) Preferencias: si no hay config, se crea la de por defecto (modo e intensidad Automatico). Si existe, no se toca.
 $cfgCreada = $false

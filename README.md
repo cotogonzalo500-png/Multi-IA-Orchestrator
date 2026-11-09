@@ -32,7 +32,7 @@ Without Codex and without Antigravity the plugin still installs and works, but i
 Then restart Claude Code and run `/configurar`. Details are in [INSTALLATION.md](INSTALLATION.md) (bilingual ES/EN headings; body in Spanish).
 
 ## Connect Codex and Antigravity
-Each user signs in **with their own account**, using the vendor's official CLI. The plugin never reads, copies or stores tokens, cookies or session files. It only checks whether the CLI is installed, which version it is, and (for Codex) what `codex login status` reports. Antigravity has no free way to check whether you are signed in, so `/configurar probar` sends one minimal real task to confirm it. That costs a little of that engine's allowance.
+Each user signs in **with their own account**, using the vendor's official CLI. The plugin never reads, copies or stores tokens, cookies or credentials. For statistics it reads Codex's local session logs only to extract the model used and the usage (metadata; nothing is sent anywhere). It also checks whether the CLI is installed, which version it is, and (for Codex) what `codex login status` reports. Antigravity has no free way to check whether you are signed in, so `/configurar probar` sends one minimal real task to confirm it. That costs a little of that engine's allowance.
 
 ## Dashboard
 The pane **Multi-IA · consumo** opens by itself beside the chat when a session starts. If you closed it, run `/panel-ia` to open it again. Its **⤢ Expandir** button opens the full view (*Multi-IA · Centro de control*). It reads only local data from your data folder.
@@ -52,6 +52,8 @@ The pane **Multi-IA · consumo** opens by itself beside the chat when a session 
 | `/configurar` says node is missing | Install Node.js 18+ and restart Claude Code |
 | Codex shows "No instalado" | `npm install -g @openai/codex`, open a new terminal, then run `/configurar` again |
 | Codex shows "Autenticacion requerida" | Run `codex login` in a terminal |
+| PowerShell says "running scripts is disabled" when you run `codex` | Use `codex.cmd login` and `codex.cmd login status` instead; no administrator rights or policy change needed |
+| The plugin says an engine "is not installed or has no active account" | Claude does that task itself. Run `/configurar` to see how to install and sign in to that engine |
 | Antigravity returns empty answers | Open `agy` once in a terminal and sign in, then run `/configurar probar` |
 | Corrupt configuration | Run `/configurar`: it prints the exact command with your install path (`config.ps1 -Recuperar`) |
 | Data folder not writable | Set `MULTIIA_DATOS` to a folder you own |

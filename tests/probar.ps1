@@ -1696,6 +1696,24 @@ T '2.3.1 Find-CodexExe: encuentra Codex instalado por npm (no solo la app de esc
         Afirmar (([regex]::Matches($c, 'OpenAI\\Codex\\bin" -Recurse')).Count -le $(if ($s -eq '_comun.ps1') { 1 } else { 0 })) "$s busca codex.exe por su cuenta en vez de usar Find-CodexExe"
     }
 }
+T '2.3.7 sin Codex ni Antigravity instalados: elegir.ps1 no tira error crudo, deriva a Claude y dice como solucionarlo; delegar.ps1 no intenta un respaldo no instalado' {
+    $base = Join-Path $tmp 'sinmotores'; $lad = Join-Path $base 'lad'; $dat = Join-Path $base 'datos'
+    New-Item -ItemType Directory $lad, $dat -Force | Out-Null
+    $pre = "`$env:LOCALAPPDATA = '$lad'; `$env:MULTIIA_DATOS = '$dat'; `$env:Path = `$env:SystemRoot + '\System32'; "
+    foreach ($tt in 'codigo', 'texto') {
+        $o = (& powershell -NoProfile -Command ($pre + "& '$(Join-Path $sc 'elegir.ps1')' -Tarea $tt 2>&1 | Out-String") | Out-String)
+        Afirmar ($o -match '"destino":"claude"') "sin motores ($tt) deberia derivar a claude: $o"
+        Afirmar ($o -match 'configurar') "sin motores ($tt) deberia remitir a /configurar: $o"
+        Afirmar ($o -notmatch 'Exception|CategoryInfo|no se puede') "sin motores ($tt) mostro un error crudo: $o"
+    }
+    $o = (& powershell -NoProfile -Command (". '$(Join-Path $sc '_comun.ps1')'; (Test-Secreto 'Cookie: session=abcdef123456'), (Hide-Secretos 'Set-Cookie: SID=zzzzzzzz99999'), (Get-AyudaClase 'desconocido').Length -join '|'") | Out-String).Trim()
+    Afirmar ($o -match '^True\|' -and $o -match 'REDACTADO' -and $o -notmatch 'zzzzzzzz') "las cookies deben bloquearse/redactarse: $o"
+    Afirmar ($o -notmatch '\|0$') 'toda clase de error debe tener una ayuda'
+    $dc = Get-Content (Join-Path $sc 'delegar-codex.ps1') -Raw
+    Afirmar ($dc -match 'not logged') 'delegar-codex.ps1 debe rechazar "Not logged in"'
+    $dg = Get-Content (Join-Path $sc 'delegar.ps1') -Raw
+    Afirmar ($dg -match 'altInst' -and $dg -match 'sin respaldo') 'delegar.ps1 no valida que el motor de respaldo este instalado'
+}
 T '2.3.1 handoff por proyecto: memoria.ps1 -Handoff guarda la carpeta y el hook solo lo inyecta en una sesion de esa carpeta (auditoria Codex #4)' {
     $node = (Get-Command node -ErrorAction SilentlyContinue).Source; if (-not $node) { $node = Join-Path $env:LOCALAPPDATA 'Programs\nodejs\node.exe' }
     $dh = Join-Path $tmp 'handoff-proy'; New-Item -ItemType Directory $dh -Force | Out-Null
