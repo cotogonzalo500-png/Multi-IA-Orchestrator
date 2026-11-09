@@ -87,7 +87,7 @@ const reinicio = atom({ plugin: 'multi-ia-orquestador', key: 'reinicio' } as con
 })
 // ---------- Chats (1.9.0): consumo por conversacion. Se lee BAJO DEMANDA (al abrir la seccion o con "Actualizar"), nunca en el ciclo de 4 s:
 // chats.ps1 usa el cache incremental de transcripts (~10 s) y el resultado se reutiliza 60 s.
-type NivelDato = { valor: number | null; nivel: string; fuente?: string; aclaracion?: string; mensajes?: number; filas?: number; parcial?: boolean }
+type NivelDato = { valor: number | null; nivel: string; fuente?: string; aclaracion?: string; mensajes?: number; filas?: number; parcial?: boolean; cache_lectura?: number }
 type ChatInfo = { id_chat: string; estado: string; primera: string; ultima: string; ejecuciones_activas_confirmadas: number; delegaciones: number; errores: number; frescura?: { edad_seg?: number }; consumo: { claude_real: NivelDato; claude_estimado_delegaciones: NivelDato; codex: NivelDato; antigravity: NivelDato }; no_real?: { filas: number } }
 type EjecInfo = { id_ejecucion: string; id_chat: string; motor: string; modelo: string; tarea: string; estado: string; frescura: string; inicio: string; duracion_seg: number; duracion_nivel: string; clase?: string; causa?: string; fecha: string }
 type ChatsJson = { generado: string; chat_actual: string | null; chats: ChatInfo[]; ejecuciones_activas_ahora: EjecInfo[]; ejecuciones_recientes: EjecInfo[]; resumen_general: any; nota: string }
@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '2.3.5'
+const VERSION = '2.3.6'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -1211,6 +1211,8 @@ export const register: Register = on => {
         const c = chAct
         const tok = c?.consumo.claude_real.valor ?? null, cx = c?.consumo.codex.valor ?? null, ag = c?.consumo.antigravity.valor ?? null
         const trab = cx === null && ag === null ? null : (cx ?? 0) + (ag ?? 0)
+        const cache = c?.consumo.claude_real.cache_lectura ?? 0
+        const tokPond = tok === null ? 0 : tok - cache + Math.round(cache * 0.1)   // 2.3.6: las lecturas de caché cuentan al 10 % (supuesto, no medido)
         const cos = c?.consumo.claude_estimado_delegaciones.valor ?? null
         // 2.3.3: un chat conocido SIN delegaciones no ahorró nada (0, dato real), no «No determinable». Con delegaciones pero sin costo, sigue sin determinarse.
         const sinDeleg = !!c && c.delegaciones === 0
@@ -1223,7 +1225,7 @@ export const register: Register = on => {
           { v: cos === null ? 's/d' : fmt(cos), r: 'costo estimado', c: T.ambar },
           { v: aho === null ? nd : '≈ ' + fmt(aho), r: 'ahorro estimado', c: (aho ?? 0) < 0 ? T.aviso : T.okSuave },
           { v: c ? String(ejN) : 's/d', r: 'ejecuciones', c: T.cian },
-          { v: sinDeleg ? '0 %' : aho === null || !trab || tok === null ? nd : Math.round(aho * 100 / (trab + tok)) + ' %', r: 'ahorro por chat', c: T.ahorro },   // 2.3.5: sobre TODO el tráfico del chat (Claude real + delegado), no solo sobre lo delegado
+          { v: sinDeleg ? '0 %' : aho === null || !trab || tok === null ? nd : Math.round(aho * 100 / (trab + tokPond)) + ' %', r: 'ahorro por chat', c: T.ahorro },   // 2.3.6: sobre el tráfico PONDERADO del chat (Claude con la caché al 10 % + delegado), no solo sobre lo delegado
           { v: 's/d', r: 'recuperaciones', c: T.magenta },
         ]
       }
@@ -1247,7 +1249,7 @@ export const register: Register = on => {
     const kpiCuatro = [
       { v: sinD(kG[0].v) ? 'Sin datos' : kG[0].v, r: 'Tokens totales', c: T.violeta, ic: 'chip', d: 'Claude + delegado (global)' },
       { v: sinD(kG[4].v) ? 'Sin datos' : kG[4].v, r: 'Tokens ahorrados', c: T.okSuave, ic: 'rayo', d: nDel + (nDel === 1 ? ' delegación' : ' delegaciones') },
-      { v: sinD(kC[6].v) ? 'Sin datos' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: '% del tráfico del chat · estimado' },
+      { v: sinD(kC[6].v) ? 'Sin datos' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: 'estimado · caché de Claude al 10 %' },
       { v: sinD(kG[3].v) ? 'Sin datos' : kG[3].v, r: 'Costo estimado', c: T.ambar, ic: 'monedas', d: 'tokens de Claude (coordinar)' },
     ]
     const kpiCols = 2, mitad = centro ? Math.floor(anchoU * 0.49) : anchoU
