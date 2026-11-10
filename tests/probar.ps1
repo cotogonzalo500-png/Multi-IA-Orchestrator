@@ -1300,6 +1300,13 @@ T 'codex 1.9.2 (cuentas secundarias): trazabilidad encuentra la sesion en el COD
     $p = @{}; foreach ($x in @($r | ForEach-Object { $_ })) { $p[$x.id] = $x }
     Afirmar ($p['cta2-1'].veredicto -ne 'sin-registro-ejecutor' -and $p['cta2-1'].tok_ejecutor -eq 33) "cuenta secundaria: $($p['cta2-1'] | ConvertTo-Json -Compress)"
 }
+T '2.3.14 (Get-ClaseError): agy sin login real ("Authentication required ... authentication failed or timed out") es autenticacion, no timeout, y no reintentable' {
+    $x = "Authentication required. Please visit the URL to log in:`n  https://accounts.google.com/o/oauth2/auth?x=1`nWaiting for authentication (timeout 60s)...`nError: authentication timed out.`nerror: authentication failed or timed out"
+    $r = Get-ClaseError -Texto $x -Salida 1
+    Afirmar ($r.clase -eq 'autenticacion' -and -not $r.reintentable) "agy sin login: $($r.clase)/$($r.reintentable)"
+    $t = Get-ClaseError -Texto 'AGY_ERROR: {"status":"DEADLINE_EXCEEDED","retryable":true,"reason":"print_timeout"}' -Salida 1
+    Afirmar ($t.clase -eq 'timeout') "timeout real intacto: $($t.clase)"
+}
 T 'codex 1.9.2 (Get-ClaseError): modelo invalido gana sobre timeout; "not recognized" de un comando no es modelo invalido; timeout real sigue siendo timeout' {
     $a = Get-ClaseError -Texto "error: invalid model 'gpt-zzz' (request timed out while validating)" -Salida 1
     Afirmar ($a.clase -eq 'modelo-invalido' -and -not $a.reintentable) "invalid model + timeout: $($a.clase)/$($a.reintentable)"

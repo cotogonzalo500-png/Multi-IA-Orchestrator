@@ -372,6 +372,8 @@ function Get-ClaseError {
     elseif ($t -match '(?i)contener un secreto|nombre de archivo secreto') { $clase = 'secreto-bloqueado'; $reint = $false }
     # 1.9.2: modelo-invalido va ANTES de timeout (un mensaje "invalid model ... timed out" no es reintentable) y ya no usa el generico "not recognized" (tambien lo dice PowerShell para un comando).
     elseif ($t -match '(?i)invalid model|unknown model|model.{0,40}(is )?not recognized|not recognized.{0,40}model|modelo.{0,12}(invalido|no reconocido)') { $clase = 'modelo-invalido'; $reint = $false }
+    # 2.3.14: agy sin login imprime "Authentication required ... authentication failed or timed out": la auth gana sobre timeout (no reintentable)
+    elseif ($t -match '(?i)authentication (required|failed)|visit the url to log in') { $clase = 'autenticacion'; $reint = $false }
     elseif ($t -match '(?i)print_timeout|DEADLINE_EXCEEDED|timed? ?out|tiempo agotado') { $clase = 'timeout'; if ($null -eq $reint) { $reint = $true } }
     elseif ($t -match '(?i)MAX_TOKENS|max[_ ]output[_ ]tokens|respuesta truncada|output truncated|finish_reason.{0,6}length') { $clase = 'truncado'; if ($null -eq $reint) { $reint = $false } }
     elseif ($t -match '(?i)unauthenticated|not logged|no tiene sesi|log ?in required|sign.?in|credential|\b401\b|\b403\b') { $clase = 'autenticacion'; $reint = $false }

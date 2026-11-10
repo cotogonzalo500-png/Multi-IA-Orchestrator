@@ -1,4 +1,6 @@
 # Changelog (Community Edition)
+## 2.3.14
+- Corrección encontrada con agy REAL sin login (usuario local temporal, sin credenciales): agy imprime «Authentication required… authentication failed or timed out» y el router lo clasificaba como `timeout` (reintentable, ayuda «el motor tardó demasiado»). Ahora `Get-ClaseError` reconoce `authentication required|failed` / «visit the URL to log in» como `autenticacion` (no reintentable, con instrucciones de login) antes de evaluar timeout. Prueba de regresión con el texto real. Evidencia: `validacion\agy-sin-login-real\`.
 
 ## 2.3.13
 - La tarjeta «Ahorro por chat» se muestra como estimación exploratoria («≈ N % est.», caché al 10 %), no como medición ni cuota.
