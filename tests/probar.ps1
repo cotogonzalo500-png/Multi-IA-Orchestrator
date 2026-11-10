@@ -1964,6 +1964,79 @@ T '2.3.1: la Community trae icono (512-2048 px, cuadrado, < 2 MB) y el README ma
     Afirmar (-not ('%USERPROFILE%\x' -match $rutas)) 'el patron de rutas marca %USERPROFILE%'
     Afirmar (-not (('C:' + '\Users\Public\x') -match $rutas)) 'el patron de rutas marca C:\Users\Public'
 }
+Write-Host "== 2.3.10 (hallazgos de la auditoria cruzada de Codex)"
+T '2.3.10 Codex (a): Remove-CandadoViejo no retira un candado ajeno ni por un instante (sin ventana de carrera)' {
+    $f = Join-Path $tmp 'carrera.lock'; $nuevo = '{"pid":1,"fecha":"nuevo"}'
+    [IO.File]::WriteAllText($f, $nuevo)
+    $h = [hashtable]::Synchronized(@{ stop = $false; faltas = 0 })
+    $rs = [runspacefactory]::CreateRunspace(); $rs.Open(); $rs.SessionStateProxy.SetVariable('h', $h); $rs.SessionStateProxy.SetVariable('f', $f)
+    $ps = [powershell]::Create(); $ps.Runspace = $rs
+    [void]$ps.AddScript({ while (-not $h.stop) { if (-not [IO.File]::Exists($f)) { $h.faltas++ } } })
+    $as = $ps.BeginInvoke()
+    try {
+        Start-Sleep -Milliseconds 300
+        for ($i = 0; $i -lt 1500; $i++) { [void](Remove-CandadoViejo $f '{"pid":2,"fecha":"viejo"}') }
+    } finally { $h.stop = $true; [void]$ps.EndInvoke($as); $ps.Dispose(); $rs.Dispose() }
+    Afirmar ($h.faltas -eq 0) "el candado ajeno desaparecio $($h.faltas) veces durante el retiro"
+    Afirmar ([IO.File]::ReadAllText($f) -eq $nuevo) 'el candado ajeno cambio'
+    Afirmar (@(Get-ChildItem $tmp -Filter '*.retiro').Count -eq 0) 'quedo un archivo de retiro suelto'
+    Afirmar (Remove-CandadoViejo $f $nuevo) 'no retiro un candado que si era el juzgado viejo'
+    Afirmar (-not (Test-Path $f)) 'el candado viejo seguia ahi'
+}
+T '2.3.10 Codex (b): Invoke-ConTimeout cierra tambien un nieto cuyo padre intermedio ya murio' {
+    $m = '-n 48 127.0.0.9'
+    $cmd = "Start-Process cmd.exe -ArgumentList '/c','start','/b','ping','-n','48','127.0.0.9' -WindowStyle Hidden; Start-Sleep 60"
+    $r = Invoke-ConTimeout 'powershell.exe' @('-NoProfile', '-Command', $cmd) 5 -Duro
+    Afirmar ($r.timeout) 'no vencio el tiempo'
+    Start-Sleep -Milliseconds 800
+    $vivos = @(Get-CimInstance Win32_Process -Filter "Name='PING.EXE'" | Where-Object { $_.CommandLine -like "*$m*" })
+    if ($vivos) { $vivos | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
+    Afirmar ($vivos.Count -eq 0) "sobrevivio un nieto tras el timeout (PID $($vivos.ProcessId -join ','))"
+}
+T '2.3.10 Codex (c): el respaldo no reintenta sin el contexto (-Carpeta hacia agy / -Archivo hacia codex) y lo avisa' {
+    $arch = Join-Path $tmp 'ctx.txt'; [IO.File]::WriteAllText($arch, 'contenido de prueba')
+    $r = Correr-Deleg 'codigo' 'codex' 'agy' @('-Carpeta', $tmp)
+    Afirmar ($r.out -match 'sin respaldo' -and $r.out -notmatch 'cambio de motor') "codex->agy con -Carpeta: $($r.out)"
+    Afirmar ($r.cod -ne 0) 'debia seguir fallando'
+    $r = Correr-Deleg 'texto' 'agy' 'codex' @('-Archivo', $arch)
+    Afirmar ($r.out -match 'sin respaldo' -and $r.out -notmatch 'cambio de motor') "agy->codex con -Archivo: $($r.out)"
+    $r = Correr-Deleg 'codigo' 'codex' 'agy'
+    Afirmar ($r.out -match 'cambio de motor') "sin contexto adjunto el respaldo debia seguir andando: $($r.out)"
+}
+T '2.3.10 Codex (d): si falla la revision cruzada el comando no sale con 0 (codigo 4) y el resultado del primer motor se conserva' {
+    $r = Correr-Deleg 'codigo' 'agy' 'codex' @('-Cruzar')
+    Afirmar ($r.out -match 'respuesta ok de Codex') 'se perdio la respuesta del primer motor'
+    Afirmar ($r.out -match 'revision cruzada fallo') "falta el aviso: $($r.out)"
+    Afirmar ($r.cod -eq 4) "debia salir con 4, salio con $($r.cod)"
+    $r = Correr-Deleg 'codigo' '' 'codex agy' @('-Cruzar')
+    Afirmar ($r.cod -eq 0) "revision exitosa debia salir 0, salio $($r.cod)"
+}
+T '2.3.10 Codex (e): los tokens de agy en partes fragmentadas se atribuyen a la ejecucion (Get-TokEj)' {
+    $fake = Join-Path $tmp 'agy-falso.exe'   # exe real: un .cmd tiene tope de 8191 caracteres de linea y el prompt de cada parte lo supera
+    Add-Type -OutputAssembly $fake -OutputType ConsoleApplication -TypeDefinition 'public static class P { public static void Main() { System.Console.WriteLine("{\"status\":\"SUCCESS\",\"response\":\"ok\",\"conversation_id\":\"c-frag\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20}}"); } }'
+    $grande = Join-Path $tmp 'grande.txt'
+    [IO.File]::WriteAllText($grande, ((1..1000 | ForEach-Object { 'linea de prueba ' + $_ }) -join "`r`n"), [Text.Encoding]::ASCII)
+    $id = 'ej-frag-' + [guid]::NewGuid().ToString('N').Substring(0, 6)
+    $viejoA = $env:MULTIIA_AGY_EXE; $env:MULTIIA_AGY_EXE = $fake; $eapV = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+        $cmd = "`$global:MIA_IdEj = '$id'; & '$($sc.Replace("'", "''"))\delegar-agy.ps1' -Prompt 'x' -Archivo '$($grande.Replace("'", "''"))'"
+        $o = (& powershell -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String)
+    } finally { $env:MULTIIA_AGY_EXE = $viejoA; $ErrorActionPreference = $eapV }
+    Afirmar ($o -match 'PARTE 2/') "no se fragmento: $o"
+    $filas = @(Get-Uso -Todo | Where-Object { [string]$_.ej -eq $id })
+    Afirmar ($filas.Count -ge 2) "las partes no quedaron atribuidas a la ejecucion ($($filas.Count) filas)"
+    Afirmar ((Get-TokEj $id) -eq (120 * $filas.Count)) "tokens de la ejecucion: $(Get-TokEj $id)"
+}
+T '2.3.11: Test-Secreto detecta tokens GitHub/AWS/JWT, credenciales en URL y valores entrecomillados con espacios; -Aislar mira el contenido' {
+    . (Join-Path $sc '_comun.ps1')
+    foreach ($x in @('ghp_' + ('a' * 24), 'AKIA' + ('A' * 16), 'https://user:clave@host/x', 'password = "mi clave secreta"', 'eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0NTY.SflKxwRJSMeKKF2QT4')) { Afirmar (Test-Secreto $x) "no detecto: $x" }
+    Afirmar (-not (Test-Secreto 'hola, esto es texto normal sin nada raro')) 'falso positivo en texto normal'
+    Afirmar ((Get-Content (Join-Path $sc 'delegar-codex.ps1') -Raw) -match 'conSecreto.*Test-Secreto') '-Aislar no revisa el contenido'
+}
+T 'delegar-agy: todo prompt lleva la orden de no usar herramientas (2.3.11: "numeros del 1 al 400" daba respuesta vacia por RunCommand denegado)' {
+    $s = Get-Content (Join-Path $sc 'delegar-agy.ps1') -Raw
+    Afirmar ($s -match "\`$argsAgy = @\('-p', \(\`$Prompt \+ .*no uses herramientas ni comandos") 'el prompt enviado a agy no incluye la orden de no usar herramientas'
+}
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""; Write-Host "Resultado: $ok ok, $mal con falla$(if ($omit) { ", $omit omitidas (solo DEV)" })" -ForegroundColor $(if ($mal) { 'Red' } else { 'Green' })
 exit $(if ($mal) { 1 } else { 0 })

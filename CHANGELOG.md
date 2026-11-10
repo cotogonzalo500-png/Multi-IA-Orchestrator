@@ -1,5 +1,9 @@
 # Changelog (Community Edition)
 
+## 2.3.12
+- Auditoría del ahorro: la métrica «Ahorro por chat» es una estimación (tokens de la CLI, que incluyen su contexto fijo de entrada, menos la coordinación); no mide la cuota de Claude y sobreestima en tareas chicas. Etiqueta corregida.
+- Tests del panel más estables (el runner fija 5 s por test). `construir.ps1` mantiene la versión de plugin.json alineada con el desarrollo.
+
 ## 2.3.1 (preview, sin publicar)
 - Primera Community Edition generada a partir del desarrollo privado 2.3.1 (`community\construir.ps1`).
 - `/configurar`: asistente de primer uso. Detecta los requisitos y los motores, guía la instalación y el login oficiales, crea la configuración por defecto (intensidad Automático) sin pisar la existente y arranca las métricas vacías.

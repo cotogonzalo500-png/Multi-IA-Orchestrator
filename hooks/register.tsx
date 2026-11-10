@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '2.3.9'
+const VERSION = '2.3.12'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -1249,7 +1249,7 @@ export const register: Register = on => {
     const kpiCuatro = [
       { v: sinD(kG[0].v) ? 'Sin datos' : kG[0].v, r: 'Tokens totales', c: T.violeta, ic: 'chip', d: 'Claude + delegado (global)' },
       { v: sinD(kG[4].v) ? 'Sin datos' : kG[4].v, r: 'Tokens ahorrados', c: T.okSuave, ic: 'rayo', d: nDel + (nDel === 1 ? ' delegación' : ' delegaciones') },
-      { v: sinD(kC[6].v) ? 'Sin datos' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: 'estimado · caché de Claude al 10 %' },
+      { v: sinD(kC[6].v) ? 'Sin datos' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: 'estimación, no cuota · caché de Claude al 10 %' },   // 2.3.12: cuenta tokens de la CLI (con su contexto fijo de entrada), no solo lo entregado
       { v: sinD(kG[3].v) ? 'Sin datos' : kG[3].v, r: 'Costo estimado', c: T.ambar, ic: 'monedas', d: 'tokens de Claude (coordinar)' },
     ]
     const kpiCols = 2, mitad = centro ? Math.floor(anchoU * 0.49) : anchoU

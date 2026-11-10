@@ -74,6 +74,7 @@ if ($Archivo) {
             if ($acum.Length -gt 0) { $partes += [pscustomobject]@{ n = $f.Name; a = $ini; b = $lineas.Count; t = $acum.ToString() } }
         }
         $env:MULTIIA_AGY_PARTE = '1'; $peor = 0; $k = 0
+        if ($global:MIA_IdEj) { $env:MULTIIA_ID_EJ = [string]$global:MIA_IdEj }   # 2.3.10 (Codex): el global no cruza al proceso hijo; sin esto los tokens de cada parte quedaban sin atribuir (Get-TokEj = 0)
         try {
             foreach ($p in $partes) {
                 $k++
@@ -84,7 +85,7 @@ if ($Archivo) {
                 Write-Output "=== PARTE $k/$($partes.Count) · $($p.n) lineas $($p.a)-$($p.b) ==="
                 & powershell @pa; if ($LASTEXITCODE -ne 0) { $peor = $LASTEXITCODE; Write-Output "[PARTE $k FALLO: salida $LASTEXITCODE; no se reintenta a ciegas]" }
             }
-        } finally { Remove-Item Env:\MULTIIA_AGY_PARTE, Env:\MULTIIA_AGY_PARTE_TXT -ErrorAction SilentlyContinue }
+        } finally { Remove-Item Env:\MULTIIA_AGY_PARTE, Env:\MULTIIA_AGY_PARTE_TXT, Env:\MULTIIA_ID_EJ -ErrorAction SilentlyContinue }
         exit $peor
     }
     $Prompt = $Prompt + "`n`n" + ($bloques -join "`n`n")
@@ -104,7 +105,8 @@ $errArch = Join-Path $env:TEMP ('agy-err-' + [guid]::NewGuid().ToString('N').Sub
 try {
     # v1.9.1: timeout DURO de proceso (--print-timeout + 90 s de gracia). Si agy se cuelga, se mata todo el arbol (sin huerfanos) y se clasifica como timeout.
     $segEspera = if ($Espera -match '^(\d+)\s*(s|m|h)?$') { [int]$Matches[1] * @{ s = 1; m = 60; h = 3600 }[$(if ($Matches[2]) { $Matches[2] } else { 's' })] } else { 300 }
-    $argsAgy = @('-p', $Prompt) + $extraDir + @('--model', $Modelo, '--print-timeout', $Espera, '--output-format', 'json')
+    # 2.3.11: agy en modo -p no puede correr comandos (permiso denegado -> respuesta vacia, p.ej. "numeros del 1 al 400"). Se le pide siempre responder directo en texto.
+    $argsAgy = @('-p', ($Prompt + "`n`n(Responde directamente en texto; no uses herramientas ni comandos.)")) + $extraDir + @('--model', $Modelo, '--print-timeout', $Espera, '--output-format', 'json')
     $res = Invoke-ConTimeout $agy $argsAgy ($segEspera + 90) -Duro
     if ($res.arranque -eq $false) { $msgA = "agy no arranca ($agy): $($res.error). Reinstalalo o corregi MULTIIA_AGY_EXE."; Set-CausaActual -Texto $msgA -Salida 126; Write-Error $msgA; exit 126 }
     $crudo = @($res.salida -split "\r?\n" | Where-Object { $_ -ne '' })

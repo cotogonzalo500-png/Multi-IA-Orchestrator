@@ -8,7 +8,7 @@ const PANE = {
 } as const
 const V2 = { rango: '24h', seccion: 'resumen', ocultas: [], plegadas: [], q: '', cp: 0, filtro: 'todo', fprov: 'todo', fest: 'todo', forig: 'prod', orden: 'nuevo', sel: '', exp: '' }
 
-test('reactor: Disponible → Analizando → Seleccionando → Delegando → Ejecutando → Completado', async ($, on) => {
+test('reactor: Disponible → Analizando',async ($, on) => {
   let eventos: any[] = []
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('state.get', (_, e) => e.key === 'vista'
@@ -30,6 +30,22 @@ test('reactor: Disponible → Analizando → Seleccionando → Delegando → Eje
   await $.prompt.submit({ text: 'revisá este código y arreglá las fallas del archivo principal' } as any)
   expect(await reactor()).toContain('Analizando')
 
+})
+// 2.3.12: la secuencia se parte en dos tests. Cada mount del panel cuesta 0,2-3 s según la carga de la máquina y el runner fija 5 s por test
+// (ignora la opción timeout): con 5 montajes seguidos en un solo test, una máquina cargada lo vencía sin que hubiera un defecto.
+test('reactor: Seleccionando → Delegando → Ejecutando', async ($, on) => {
+  let eventos: any[] = []
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('state.get', (_, e) => e.key === 'vista'
+    ? { value: { value: { shape: 'vista-2', value: V2 }, version: 1, shape: 'vista-2' } }
+    : { value: { value: { shape: 'datos-8', value: { modo: 'automatico', calidad: 'equilibrada', tarjetas: [], eventos } }, version: 1, shape: 'datos-8' } })
+  const reactor = async () => {
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const r: any = ((await ui.findAll({ type: 'Svg' })) as any[]).find(n => /^Reactor: /.test(String(n.props?.alt ?? '')))
+    await ui.unmount()
+    return String(r?.props?.alt ?? '')
+  }
+  const ev = (t: string, extra: object = {}) => ({ f: new Date().toISOString(), t, d: 'codex', x: 'gpt-6.1-sol', m: '', k: 'codigo', tok: 0, s: 0, i: 'ej-test-1', ...extra })
   // 3. El router eligió motor (evento seleccionado, todavía sin lanzar)
   eventos = [ev('seleccionado')]
   expect(await reactor()).toContain('Seleccionando')

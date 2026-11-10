@@ -60,7 +60,7 @@ function Get-HashMemoria {
 }
 
 # 2.3.1 (auditoria Codex #3 y #10): un solo patron de secretos para TODO lo que sale a otra IA (prompt final, memoria incluida) y para tachar registros.
-$script:RegexSecreto = '-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{16,}|(?i)(bearer\s+[A-Za-z0-9._~+/=-]{16,}|["'']?(api[_-]?key|password|passwd|secret|token|(set-)?cookie)["'']?\s*[:=]\s*[''"]?\S{8,})'
+$script:RegexSecreto = '-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|://[^/\s:@]+:[^/\s@]+@|(?i)(bearer\s+[A-Za-z0-9._~+/=-]{16,}|["'']?(api[_-]?key|password|passwd|secret|token|(set-)?cookie)["'']?\s*[:=]\s*("[^"\r\n]{4,}"|''[^''\r\n]{4,}''|[''"]?\S{8,}))'
 function Test-Secreto([string]$Texto) { [bool]($Texto -and ($Texto -match $script:RegexSecreto)) }
 function Hide-Secretos([string]$Texto) {
     if (-not $Texto) { return $Texto }
@@ -84,15 +84,20 @@ function Set-TextoAtomico([string]$Ruta, [string]$Texto) {
     try { Move-Item -LiteralPath $tmpA -Destination $Ruta -Force -ErrorAction Stop } catch { Remove-Item -LiteralPath $tmpA -Force -ErrorAction SilentlyContinue; throw }
 }
 
-# 2.3.1 (auditoria Codex #7): retiro de un candado vencido SIN carrera: se renombra (atomico) a un nombre unico y solo se borra si sigue siendo
-# el mismo que se juzgo viejo; si en el medio otro proceso tomo un candado nuevo, se devuelve a su lugar (o queda aparte, nunca se borra el ajeno).
+# 2.3.10 (auditoria cruzada Codex): retiro de un candado vencido SIN ventana de carrera. Antes se renombraba y, si era ajeno, se devolvia: en ese
+# instante el candado ajeno no existia y otro proceso podia tomar CreateNew (dos duenos). Ahora se abre con FileShare.Delete, se lee por el mismo handle
+# y solo si coincide con lo juzgado viejo se borra (con el handle abierto el archivo no puede reemplazarse a mitad); el ajeno nunca desaparece.
 function Remove-CandadoViejo([string]$Ruta, [string]$Visto) {
-    $ret = "$Ruta.$([guid]::NewGuid().ToString('N')).retiro"
-    try { [IO.File]::Move($Ruta, $ret) } catch { return $false }
-    $ahora = try { [IO.File]::ReadAllText($ret) } catch { $null }
-    if ($null -ne $ahora -and $ahora -ceq $Visto) { Remove-Item -LiteralPath $ret -Force -ErrorAction SilentlyContinue; return $true }
-    try { [IO.File]::Move($ret, $Ruta) } catch { }
-    return $false
+    $fs = $null; $sr = $null
+    try {
+        $fs = [IO.File]::Open($Ruta, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite,Delete')
+        $sr = New-Object IO.StreamReader($fs)
+        $ahora = $sr.ReadToEnd()
+        if ($ahora -cne $Visto) { return $false }
+        [IO.File]::Delete($Ruta)
+        return $true
+    } catch { return $false }
+    finally { if ($sr) { $sr.Dispose() } elseif ($fs) { $fs.Dispose() } }
 }
 
 # ---- CONFIGURACION: modo de eleccion de modelos y cuentas delegadas (archivo config.json, junto a la memoria) ----
@@ -405,7 +410,7 @@ function Add-Uso {
     $TokIn = if ($hayTok) { [long]$TokIn } else { $null }; $TokOut = if ($hayTok) { [long]$TokOut } else { $null }
     $o = [ordered]@{
         fecha = (Get-Date).ToString('s'); destino = $Destino; modelo = $Modelo; esfuerzo = $Esfuerzo; chars = $Chars
-        seg = [math]::Round($Segundos, 1); salida = $Salida; memoria = $ConMemoria; tok_in = $TokIn; tok_out = $TokOut; tok_estado = $tokEstado; modo = $Modo; cuenta = $Cuenta; origen = (Get-Origen); modelo_confirmado = $ModeloConf; modelo_fuente = $ModeloFuente; ej = [string]$global:MIA_IdEj
+        seg = [math]::Round($Segundos, 1); salida = $Salida; memoria = $ConMemoria; tok_in = $TokIn; tok_out = $TokOut; tok_estado = $tokEstado; modo = $Modo; cuenta = $Cuenta; origen = (Get-Origen); modelo_confirmado = $ModeloConf; modelo_fuente = $ModeloFuente; ej = $(if ($global:MIA_IdEj) { [string]$global:MIA_IdEj } else { [string]$env:MULTIIA_ID_EJ })
     }
     if ($Salida -ne 0 -and $global:MIA_Causa) { $o.clase = $global:MIA_Causa.clase; $o.causa = $global:MIA_Causa.causa; $o.reintentable = $global:MIA_Causa.reintentable }
     foreach ($k in (Get-SesionCtx).GetEnumerator()) { $o[$k.Key] = $k.Value }
@@ -601,6 +606,42 @@ function Get-CostoClaude {
     return $t
 }
 
+# 2.3.10 (auditoria cruzada Codex): Job Object de Windows para poder cerrar TODOS los descendientes de un proceso, tambien los nietos huerfanos cuyo
+# padre intermedio ya murio (taskkill /T y la busqueda por ParentProcessId no los alcanzan). Sin KILL_ON_JOB_CLOSE: en el camino normal solo se
+# suelta el handle y nada se mata. Si algo falla (otro job que no anida, sin P/Invoke) devuelve $null y se usa el cierre anterior.
+function New-JobKill($Proceso) {
+    try {
+        if (-not ('MultiIA.JobKill' -as [type])) {
+            Add-Type -ErrorAction Stop -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+namespace MultiIA {
+  public static class JobKill {
+    [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr CreateJobObject(IntPtr a, string n);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool AssignProcessToJobObject(IntPtr j, IntPtr p);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr j, uint c);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr h);
+    public static IntPtr Crear(IntPtr proceso) {
+      IntPtr j = CreateJobObject(IntPtr.Zero, null);
+      if (j == IntPtr.Zero) return IntPtr.Zero;
+      if (!AssignProcessToJobObject(j, proceso)) { CloseHandle(j); return IntPtr.Zero; }
+      return j;
+    }
+    public static void Terminar(IntPtr j) { TerminateJobObject(j, 1); }
+    public static void Cerrar(IntPtr j) { CloseHandle(j); }
+  }
+}
+'@
+        }
+        $j = [MultiIA.JobKill]::Crear($Proceso.Handle)
+        if ($j -eq [IntPtr]::Zero) { return $null }
+        return $j
+    } catch { return $null }
+}
+function Stop-JobKill($Job, [bool]$Matar) {
+    if ($null -eq $Job) { return }
+    try { if ($Matar) { [MultiIA.JobKill]::Terminar($Job) }; [MultiIA.JobKill]::Cerrar($Job) } catch { }
+}
+
 # Ejecuta un .exe con LIMITE de tiempo (lo mata si no termina) y devuelve @{ salida; error; codigo }, o $null si se paso del tiempo.
 # Sin esto, un agy o codex colgado bloquearia el panel para siempre.
 function Invoke-ConTimeout {
@@ -614,6 +655,7 @@ function Invoke-ConTimeout {
     $inicioP = (Get-Date).AddSeconds(-2)
     # 2.3.8 (Codex #4): un ejecutable que no arranca (no es una app valida, sin permiso, borrado) NO debe lanzar una excepcion cruda: se devuelve un resultado clasificable (codigo 126, arranque=$false).
     try { $p = [Diagnostics.Process]::Start($psi) } catch { return @{ salida = ''; error = "no arranca: $($_.Exception.Message)"; codigo = 126; timeout = $false; arranque = $false } }
+    $job = New-JobKill $p   # 2.3.10 (Codex): el proceso y todo lo que lance quedan en un Job Object: se cierra el arbol aunque el intermedio ya haya muerto
     try { $p.StandardInput.Close() } catch { }  # 2.0: cerrar stdin para que codex/agy no esperen entrada (cuelgue bajo Start-Job)
     $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()
     if (-not $p.WaitForExit($Segundos * 1000)) {
@@ -625,6 +667,7 @@ function Invoke-ConTimeout {
             try { $p.Kill() } catch { }
             try { $terminado = $p.WaitForExit(5000) } catch { $terminado = $p.HasExited }
         }
+        Stop-JobKill $job $true
         if (-not $terminado) { try { Write-Warning "Invoke-ConTimeout: el proceso $($p.Id) ($([IO.Path]::GetFileName($Exe))) no termino tras el cierre forzado" } catch { } }
         if ($Duro) { return @{ salida = $(if ($o.IsCompleted) { $o.Result } else { '' }); error = $(if ($e.IsCompleted) { $e.Result } else { '' }); codigo = 124; timeout = $true; terminado = $terminado } }
         return $null
@@ -638,8 +681,10 @@ function Invoke-ConTimeout {
             Get-CimInstance Win32_Process -Filter "ParentProcessId=$($p.Id)" -ErrorAction Stop | Where-Object { $_.CreationDate -ge $inicioP } |
                 ForEach-Object { & taskkill.exe /T /F /PID $_.ProcessId *> $null }
         } catch { }
+        Stop-JobKill $job $true; $job = $null
         try { [void][Threading.Tasks.Task]::WaitAll(@($o, $e), 3000) } catch { }
     }
+    Stop-JobKill $job $false
     @{ salida = $(if ($o.IsCompleted) { $o.Result } else { '' }); error = $(if ($e.IsCompleted) { $e.Result } else { '' }); codigo = $p.ExitCode; timeout = $false }
 }
 

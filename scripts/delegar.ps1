@@ -5,6 +5,7 @@
 #   -Aislar:  (codex, codigo) Codex trabaja en una COPIA de -Carpeta; el original no se toca. Devuelve la lista de cambios para revisar.
 #   -Critico: calidad maxima (dinero, seguridad, produccion): mejor motor de cada IA + REVISION CRUZADA automatica con un segundo motor de otro proveedor.
 #   -Cruzar:  pide la revision cruzada aunque la calidad no sea maxima. El segundo motor recibe la tarea y la respuesta del primero y busca errores.
+# Codigos de salida: 0 ok · 1 error del motor · 2 secreto bloqueado · 3 sin delegar · 4 el primer motor salio bien pero la REVISION CRUZADA fallo (la respuesta del primero igual se imprime).
 param(
     [Parameter(Mandatory)][ValidateSet('texto', 'trivial', 'razonar', 'opinion', 'codigo', 'revision', 'contenido', 'imagen')][string]$Tarea,
     [Parameter(Mandatory)][string]$Prompt,
@@ -97,6 +98,9 @@ if ($codigo -ne 0 -and $codigo -ne 2 -and -not $Critico -and -not $Cruzar -and -
     $ctaAlt = @(Get-CuentasActivas (Get-Config) $altD)[0]
     $altInst = if ($altD -eq 'agy') { [bool](Find-AgyExe) } else { [bool](Find-CodexExe) }
     if ($ctaAlt -and -not $altInst) { Write-Output "[sin respaldo: $altD no está instalado; corré /configurar para ver cómo instalarlo]"; $ctaAlt = $null }
+    # 2.3.10 (Codex): el motor alterno no puede recibir el mismo contexto (agy no lee -Carpeta; codex no recibe -Archivo): reintentar igual daria una respuesta SIN ese contexto, enganosa.
+    if ($ctaAlt -and $altD -eq 'agy' -and $Carpeta) { Write-Output "[sin respaldo: agy no puede leer -Carpeta y el reintento saldría sin ese contexto; repetí la tarea con Codex o pasá los archivos con -Archivo]"; $ctaAlt = $null }
+    if ($ctaAlt -and $altD -eq 'codex' -and $Archivo) { Write-Output "[sin respaldo: Codex no recibe -Archivo y el reintento saldría sin esos archivos; repetí la tarea con Antigravity o pasá -Carpeta]"; $ctaAlt = $null }
     if ($ctaAlt) {
         $idAlt = "$idEj-r"; $global:MIA_Conf = ''; $global:MIA_Modelo = $null; $global:MIA_IdEj = $idAlt
         # v1.9.0: el respaldo en agy usa esfuerzo medium (argon-high era el mas lento y propenso a timeout)
@@ -154,5 +158,6 @@ if (($Cruzar -or $sel.calidad -eq 'maxima') -and $codigo -eq 0 -and $segundo -an
     Write-Output ""
     Write-Output ("[revision cruzada: {0} · {1}] {2}" -f $segundo.destino, $(if ($segundo.perfil) { $segundo.perfil } else { 'modelo de la cuenta' }), $segundo.motivo)
     & (Join-Path $PSScriptRoot "delegar-$($segundo.destino).ps1") @q
-    if ($LASTEXITCODE -ne 0) { Write-Output "[aviso: la revision cruzada fallo; revisar el resultado del primer motor a mano]" }
-}exit $codigo
+    if ($LASTEXITCODE -ne 0) { Write-Output "[aviso: la revision cruzada fallo; revisar el resultado del primer motor a mano]"; $codRev = 4 }   # 2.3.10 (Codex): ya no sale 0 si la revision pedida fallo
+}
+exit $(if ($codigo -eq 0 -and $codRev) { $codRev } else { $codigo })

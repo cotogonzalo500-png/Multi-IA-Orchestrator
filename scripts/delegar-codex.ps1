@@ -57,6 +57,9 @@ if ($Aislar) {
     $excluir = @('.git', 'node_modules', '__pycache__', '.venv', '_delegado')
     $nombreSecreto = '(?i)^(\.env.*|.*\.(pem|key|pfx|p12|kdbx)|id_rsa.*|.*credential.*|.*secret.*|.*password.*|.*cookie.*|auth\.json|.*token.*|\.netrc|\.npmrc)$'   # 2.3.7: la copia aislada no duplica credenciales
     $arch = @(Get-ChildItem -LiteralPath $origenAislado -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch $nombreSecreto } | Where-Object { $rel = $_.FullName.Substring($origenAislado.Length + 1); -not ($excluir | Where-Object { $rel -like "$_\*" -or $rel -like "*\$_\*" }) })
+    # 2.3.11 (auditoria cruzada Codex #3): ademas del nombre se mira el CONTENIDO (texto <= 1 MB); lo que parezca secreto no se copia.
+    $conSecreto = @($arch | Where-Object { $_.Length -le 1MB -and (Test-Secreto ([IO.File]::ReadAllText($_.FullName))) })
+    if ($conSecreto.Count) { $arch = @($arch | Where-Object { $_.FullName -notin $conSecreto.FullName }); Write-Output ("[aislar: {0} archivo(s) NO copiados por contener posibles secretos: {1}]" -f $conSecreto.Count, (($conSecreto | Select-Object -First 5 | ForEach-Object { $_.Name }) -join ', ')) }
     if ((($arch | Measure-Object Length -Sum).Sum / 1MB) -gt 100) { $env:CODEX_HOME = $homeViejo; Write-Error "La carpeta pesa más de 100 MB: -Aislar no la copia."; exit 1 }
     $Carpeta = Join-Path $script:DatosDir ('_delegado\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 4))
     foreach ($f in $arch) { $d = Join-Path $Carpeta $f.FullName.Substring($origenAislado.Length + 1); New-Item -ItemType Directory -Force (Split-Path $d) | Out-Null; Copy-Item -LiteralPath $f.FullName -Destination $d }
