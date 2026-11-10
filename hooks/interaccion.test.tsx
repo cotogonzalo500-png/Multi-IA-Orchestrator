@@ -229,7 +229,7 @@ test('Ahorro por chat: muestra solo los datos del chat actual (aislado del otro 
   vistaYDatos(on, {}, { chats: chatsConDatos('chat-A') })
   const ui = await montar($)
   const a = await altKpi(ui)
-  expect(a).toMatch(/Ahorro por chat 6 %/)   // 2.3.5 chat-A: (1.000 − 500) / (1.000 delegado + 7.000 Claude real) = 6 %
+  expect(a).toMatch(/Ahorro por chat ≈ 6 % est./)   // 2.3.5 chat-A: (1.000 − 500) / (1.000 delegado + 7.000 Claude real) = 6 %
   await ui.unmount()
 })
 test('Ahorro por chat 2.3.6: las lecturas de caché de Claude cuentan al 10 % y la tarjeta lo aclara', async ($, on) => {
@@ -238,8 +238,8 @@ test('Ahorro por chat 2.3.6: las lecturas de caché de Claude cuentan al 10 % y 
   vistaYDatos(on, {}, { chats: c })
   const ui = await montar($)
   const a = await altKpi(ui)
-  expect(a).toMatch(/Ahorro por chat 19 %/)   // (1.000 − 500) / (1.000 + 1.600) = 19 %
-  expect(a).toMatch(/caché de Claude al 10 %/)
+  expect(a).toMatch(/Ahorro por chat ≈ 19 % est./)   // (1.000 − 500) / (1.000 + 1.600) = 19 %
+  expect(a).toMatch(/caché al 10 %/)
   await ui.unmount()
 })
 test('Ahorro por chat: con chat-B como actual cambia el valor', async ($, on) => {
@@ -247,7 +247,7 @@ test('Ahorro por chat: con chat-B como actual cambia el valor', async ($, on) =>
   const ui = await montar($)
   const a = await altKpi(ui)
   expect(a).toMatch(/Ahorro por chat /)
-  expect(a).not.toMatch(/Ahorro por chat 6 %/)
+  expect(a).not.toMatch(/Ahorro por chat ≈ 6 % est./)
   await ui.unmount()
 })
 test('Ahorro por chat: un chat conocido sin delegaciones muestra 0 % (dato real), no «No determinable»', async ($, on) => {
@@ -367,7 +367,7 @@ test('UX 2.3.0: un ahorro negativo se muestra con signo (no se esconde como 0)',
   const neg = { shape: 'chats-1', value: { ...chatsConDatos('chat-N').value, j: { ...chatsConDatos('chat-N').value.j, chats: [chatProp('chat-N', 1, 200, null, 1000, 500)] } } }
   vistaYDatos(on, {}, { chats: neg })
   const ui = await montar($)
-  expect(await altKpi(ui)).toMatch(/Ahorro por chat -25 %/)
+  expect(await altKpi(ui)).toMatch(/Ahorro por chat ≈ -25 % est./)
   await ui.unmount()
 })
 test('UX 2.3.0: el texto accesible del gráfico no anuncia las series ocultas', async ($, on) => {

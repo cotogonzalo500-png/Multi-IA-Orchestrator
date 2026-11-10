@@ -1,5 +1,8 @@
 # Changelog (Community Edition)
 
+## 2.3.13
+- La tarjeta «Ahorro por chat» se muestra como estimación exploratoria («≈ N % est.», caché al 10 %), no como medición ni cuota.
+
 ## 2.3.12
 - Auditoría del ahorro: la métrica «Ahorro por chat» es una estimación (tokens de la CLI, que incluyen su contexto fijo de entrada, menos la coordinación); no mide la cuota de Claude y sobreestima en tareas chicas. Etiqueta corregida.
 - Tests del panel más estables (el runner fija 5 s por test). `construir.ps1` mantiene la versión de plugin.json alineada con el desarrollo.
