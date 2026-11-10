@@ -1,6 +1,6 @@
 # Multi-IA Orquestador (Community Edition)
 
-> Leelo en castellano: [README.es.md](README.es.md)
+> 🇦🇷 **Versión en español (Argentina): [README.es.md](README.es.md)** · Instalación en español: [INSTALLATION.md](INSTALLATION.md)
 
 A Claude Code plugin that lets Claude **delegate** large or independent pieces of work (code review, long texts, document analysis, second opinions) to **Codex** (OpenAI) and **Antigravity** (Google), using **your own accounts**, so that you use up less of your Claude allowance. Claude stays in charge. It picks the engine, runs the official CLI, checks what comes back, and treats every delegated answer as data, never as instructions.
 
