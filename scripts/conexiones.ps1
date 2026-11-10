@@ -53,17 +53,17 @@ foreach ($id in 'codex', 'agy') {
     $ver = $null; $aut = $null
     if ($exe) {
         # Version: barata (--version, sin red ni cupo), cache 24 h.
-        if (Vigente $reg.version 86400) { $ver = $reg.version } else {
+        if ((Vigente $reg.version 86400) -and $reg.version.valor) { $ver = $reg.version } else {   # 3.1.0: un fallo de --version no se cachea 24 h
             $r = Invoke-ConTimeout $exe @('--version') 20
             $ver = [ordered]@{ fecha = $ahora.ToString('s'); valor = $(if ($r -and $r.codigo -eq 0) { ([string]$r.salida).Trim() } else { $null }); error = $(if (-not $r) { 'timeout' } elseif ($r.codigo -ne 0) { 'salida ' + $r.codigo } else { '' }) }
             $nuevo.version = $ver
         }
         # Autenticacion: solo Codex tiene un comando local y gratuito (`codex login status`). agy no: no se inventa, se infiere de errores reales.
         if ($id -eq 'codex') {
-            if (Vigente $reg.auth 3600) { $aut = $reg.auth } else {
+            if ((Vigente $reg.auth 3600) -and $Probar -notin @($id, 'todos')) { $aut = $reg.auth } else {   # 3.1.0: -Probar re-consulta la sesion (antes quedaba 'sin sesion' hasta 1 h tras loguearse)
                 $r = Invoke-ConTimeout $exe @('login', 'status') 20
                 $txt = if ($r) { (([string]$r.salida) + ' ' + ([string]$r.error)).Trim() } else { '' }
-                $aut = [ordered]@{ fecha = $ahora.ToString('s'); valor = $(if (-not $r) { $null } elseif ($r.codigo -eq 0 -and $txt -match '(?i)logged in') { 'sesion iniciada' } elseif ($txt -match '(?i)not logged') { 'sin sesion' } else { $null }); texto = $(Hide-Secretos $(if ($txt.Length -gt 120) { $txt.Substring(0, 120) } else { $txt })) }
+                $aut = [ordered]@{ fecha = $ahora.ToString('s'); valor = $(if (-not $r) { $null } elseif ($txt -match '(?i)not logged') { 'sin sesion' } elseif ($r.codigo -eq 0 -and $txt -match '(?i)logged in') { 'sesion iniciada' } else { $null }); texto = $(Hide-Secretos $(if ($txt.Length -gt 120) { $txt.Substring(0, 120) } else { $txt })) }
                 $nuevo.auth = $aut
             }
         }

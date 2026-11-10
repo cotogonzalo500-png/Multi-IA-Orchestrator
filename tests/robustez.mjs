@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { pidVivo, candadoHuerfano, retirarHuerfano, conCandado, matarVerificado } from '../scripts/robustez.mjs';
+import { pidVivo, candadoHuerfano, retirarHuerfano, conCandado, matarVerificado, arbolDe } from '../scripts/robustez.mjs';
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'multiia-robustez-'));
@@ -160,7 +160,7 @@ await T('matarVerificado tambien cierra a los descendientes (nietos)', async () 
   const r = await matarVerificado(h, { esperaMs: 4000 });
   await espera(500);
   const vivo = pidVivo(nieto); if (vivo) { try { process.kill(nieto); } catch {} }
-  af(r.terminado === true, 'padre no terminado');
+  af(r.terminado === true, 'padre no terminado: ' + JSON.stringify(r));
   af(!vivo, 'el nieto quedo vivo tras matarVerificado');
 });
 
@@ -176,6 +176,23 @@ await T('2.2.0 matarVerificado verifica a los nietos aunque taskkill no corra (f
   af(r.terminado === true && r.vivos.length === 0, 'resultado inconsistente: ' + JSON.stringify(r));
 });
 
+await T('3.1.0 arbolDe ignora un proceso huerfano cuyo ParentProcessId quedo viejo (PID reciclado)', () => {
+  // 100 = hijo (creado en t=1000). 200 = nieto legitimo (t=1500). 300 = huerfano de OTRO proceso que tuvo el PID 100 antes (t=500 < 1000): no es descendiente.
+  const tabla = new Map([[100, { ppid: 1, ticks: 1000 }], [200, { ppid: 100, ticks: 1500 }], [300, { ppid: 100, ticks: 500 }], [400, { ppid: 200, ticks: 1600 }]]);
+  const a = arbolDe(tabla, 100);
+  af(a.has(200) && a.has(400), 'faltan descendientes legitimos');
+  af(!a.has(300), 'conto como descendiente a un proceso mas viejo que su supuesto padre (se lo habria matado por error)');
+  af(arbolDe(null, 100).size === 0 && arbolDe(tabla, 999).size === 0, 'tabla nula o pid ausente deberia dar arbol vacio');
+});
+
+await T('3.1.0 matarVerificado bajo carga: 6 cierres en paralelo con nietos terminan limpios', async () => {
+  const cod = "const {spawn}=require('child_process');const n=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});console.log(n.pid);setInterval(()=>{},1000)";
+  const hs = await Promise.all(Array.from({ length: 6 }, async () => { const h = spawn(process.execPath, ['-e', cod], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }); const nieto = await new Promise((res) => h.stdout.once('data', (d) => res(parseInt(String(d).trim(), 10)))); return { h, nieto }; }));
+  const rs = await Promise.all(hs.map(({ h }) => matarVerificado(h, { esperaMs: 4000 })));
+  const vivos = hs.filter(({ nieto }) => pidVivo(nieto)); for (const { nieto } of vivos) { try { process.kill(nieto); } catch {} }
+  af(vivos.length === 0, 'quedaron nietos vivos: ' + vivos.map((v) => v.nieto));
+  af(rs.every((r) => r.terminado), 'algun cierre no se confirmo: ' + JSON.stringify(rs));
+});
 await T('Unlock-Config no borra si no puede verificar el dueño (fuente)', () => {
   const src = fs.readFileSync(path.join(aqui, '..', 'scripts', '_comun.ps1'), 'utf8');
   const m = src.match(/function Unlock-Config \{[\s\S]*?\n\}/);

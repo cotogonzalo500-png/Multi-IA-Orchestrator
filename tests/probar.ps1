@@ -2044,6 +2044,17 @@ T 'delegar-agy: todo prompt lleva la orden de no usar herramientas (2.3.11: "num
     $s = Get-Content (Join-Path $sc 'delegar-agy.ps1') -Raw
     Afirmar ($s -match "\`$argsAgy = @\('-p', \(\`$Prompt \+ .*no uses herramientas ni comandos") 'el prompt enviado a agy no incluye la orden de no usar herramientas'
 }
+T '3.1.0 auditoria Codex: 401 + timed out es autenticacion (no reintentable); -Aislar mira contenido hasta 20 MB' {
+    foreach ($x in @('HTTP 401 Unauthorized: request timed out', 'UNAUTHENTICATED: login timed out')) { $r = Get-ClaseError -Texto $x -Salida 1; Afirmar ($r.clase -eq 'autenticacion' -and -not $r.reintentable) "'$x' dio '$($r.clase)'" }
+    $s = Get-Content (Join-Path $sc 'delegar-codex.ps1') -Raw
+    Afirmar ($s -match '\$_\.Length -gt 20MB -or \(Test-Secreto') '-Aislar no revisa el contenido de archivos grandes'
+}
+T '3.1.0 conexiones.ps1: "Not logged in" gana a "logged in"; -Probar re-consulta la sesion; un fallo de --version no se cachea 24 h' {
+    $c = Get-Content (Join-Path $sc 'conexiones.ps1') -Raw
+    Afirmar ($c.IndexOf("-match '(?i)not logged') { 'sin sesion' }") -lt $c.IndexOf("-match '(?i)logged in') { 'sesion iniciada' }")) 'el chequeo de not logged debe ir antes que logged in'
+    Afirmar ($c -match 'Vigente \$reg\.auth 3600\) -and \$Probar -notin') '-Probar debe saltar la cache de auth'
+    Afirmar ($c -match 'Vigente \$reg\.version 86400\) -and \$reg\.version\.valor') 'un fallo de --version no debe cachearse'
+}
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""; Write-Host "Resultado: $ok ok, $mal con falla$(if ($omit) { ", $omit omitidas (solo DEV)" })" -ForegroundColor $(if ($mal) { 'Red' } else { 'Green' })
 exit $(if ($mal) { 1 } else { 0 })

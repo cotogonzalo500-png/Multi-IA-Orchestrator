@@ -1,22 +1,22 @@
-// Robustez del panel (2.0.1): candado de config.json sin bloquear el hilo y con dueño verificado, y cierre de procesos con verificación.
+// Robustez del panel (2.0.1): candado de config.json sin bloquear el hilo y con dueÃ±o verificado, y cierre de procesos con verificaciÃ³n.
 // Sin dependencias; lo usa panel-servidor.mjs y lo prueba tests\robustez.mjs.
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ¿Sigue vivo el proceso? (señal 0 no mata: solo comprueba existencia; EPERM = existe pero es de otro usuario)
+// Â¿Sigue vivo el proceso? (seÃ±al 0 no mata: solo comprueba existencia; EPERM = existe pero es de otro usuario)
 export function pidVivo(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
-// Dueño del candado: lee el PID guardado dentro. null = ilegible o vacío (lo crea otro lenguaje o se está escribiendo).
+// DueÃ±o del candado: lee el PID guardado dentro. null = ilegible o vacÃ­o (lo crea otro lenguaje o se estÃ¡ escribiendo).
 function dueno(lockPath) {
   try { const n = parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10); return Number.isInteger(n) && n > 0 ? n : null; } catch { return null; }
 }
 
-// Un candado se considera huérfano SOLO si es viejo Y su dueño ya no existe.
+// Un candado se considera huÃ©rfano SOLO si es viejo Y su dueÃ±o ya no existe.
 // Sin PID legible (candado de PowerShell antiguo o escritura a medias) se exige un margen mayor antes de tocarlo.
 export function candadoHuerfano(lockPath, { edadMs = 15000, edadSinDuenoMs = 60000, edadMaxMs = 300000, ahora = Date.now() } = {}) {
   let st; try { st = fs.statSync(lockPath); } catch { return false; }
@@ -27,8 +27,8 @@ export function candadoHuerfano(lockPath, { edadMs = 15000, edadSinDuenoMs = 600
 }
 
 // Retira un candado huerfano (2.2.0, Codex #1). Antes se renombraba y DESPUES se revalidaba: en esa ventana otro proceso podia crear
-// un candado nuevo y quedaban dos dueños. Ahora se toma un candado de RETIRO exclusivo (wx), se revalida que sea el mismo candado que
-// se juzgo (ino + mtime + dueño) y que siga huerfano, y recien ahi se borra. Un candado vigente nunca se mueve: mientras exista nadie
+// un candado nuevo y quedaban dos dueÃ±os. Ahora se toma un candado de RETIRO exclusivo (wx), se revalida que sea el mismo candado que
+// se juzgo (ino + mtime + dueÃ±o) y que siga huerfano, y recien ahi se borra. Un candado vigente nunca se mueve: mientras exista nadie
 // puede crear otro, y solo quien tiene el retiro puede quitarlo.
 const firma = (f) => { try { const st = fs.statSync(f); return `${st.ino}:${st.mtimeMs}:${dueno(f)}`; } catch { return null; } };
 export function retirarHuerfano(lockPath, opts = {}) {
@@ -72,34 +72,52 @@ export async function conCandado(lockPath, fn, { intentos = 100, pasoMs = 50, ed
   }
 }
 
-// Descendientes de un PID (Windows): una foto de la tabla de procesos via CIM. [] si no se puede leer o fuera de Windows.
-export function descendientes(pid, { esperaMs = 8000 } = {}) {
-  if (process.platform !== 'win32' || !pid) return Promise.resolve([]);
+// Tabla de procesos (Windows) via CIM: Map pid -> { ppid, ticks }. ticks = hora de creacion, para distinguir identidades (los PID se reciclan).
+// null si no se pudo leer (timeout con la maquina saturada, salida vacia) y fuera de Windows.
+function tablaProcesos(esperaMs = 8000) {
+  if (process.platform !== 'win32') return Promise.resolve(null);
   return new Promise((r) => {
     let out = '';
-    const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    const t = setTimeout(() => { try { ps.kill(); } catch {} r([]); }, esperaMs);
+    const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CreationDate.Ticks)" }'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const t = setTimeout(() => { try { ps.kill(); } catch {} r(null); }, esperaMs);
     ps.stdout.setEncoding('utf8'); ps.stdout.on('data', (d) => { out += d; });
-    ps.on('error', () => { clearTimeout(t); r([]); });
+    ps.on('error', () => { clearTimeout(t); r(null); });
     ps.on('close', () => {
       clearTimeout(t);
-      const hijos = new Map();
-      for (const l of out.split(/\r?\n/)) { const [a, b] = l.trim().split(/\s+/).map(Number); if (a > 0 && b >= 0 && a !== b) { if (!hijos.has(b)) hijos.set(b, []); hijos.get(b).push(a); } }
-      const res = [], pend = [pid], vistos = new Set([pid]);
-      while (pend.length) for (const h of hijos.get(pend.pop()) || []) if (!vistos.has(h)) { vistos.add(h); res.push(h); pend.push(h); }
-      r(res);
+      const m = new Map();
+      for (const l of out.split(/\r?\n/)) { const [a, b, c] = l.trim().split(/\s+/).map(Number); if (a > 0 && b >= 0) m.set(a, { ppid: b, ticks: c || 0 }); }
+      r(m.size ? m : null);
     });
   });
 }
+async function tablaConReintento(esperaMs) { for (let i = 0; i < 2; i++) { const t = await tablaProcesos(esperaMs); if (t) return t; } return null; }
 
-// Cierra un hijo y su árbol y VERIFICA que terminó (padre Y descendientes). Devuelve { terminado, intentos, vivos }.
-// kill() solo manda la señal: en Windows no mata a los nietos ni garantiza la salida, por eso taskkill /T /F y espera de confirmación.
-// 2.2.0 (Codex #2): antes se confirmaba solo al padre; un nieto con las tuberías heredadas podía quedar vivo y 'close' no llegaba nunca.
-// Ahora se toma una foto del árbol ANTES de cortar; al final cada descendiente que siga vivo se mata por PID y, si sobrevive, va en `vivos`.
+// Descendientes de un PID como Map pid -> ticks. 3.1.0: un hijo solo cuenta si NACIO despues que su padre; un proceso huerfano cuyo
+// ParentProcessId quedo viejo y coincide con un PID reciclado NO es descendiente (antes se lo mataba por error y fallaba la verificacion).
+export function arbolDe(tabla, pid) {
+  const res = new Map();
+  if (!tabla || !tabla.has(pid)) return res;
+  const hijos = new Map();
+  for (const [p, v] of tabla) { if (p !== v.ppid) { if (!hijos.has(v.ppid)) hijos.set(v.ppid, []); hijos.get(v.ppid).push(p); } }
+  const pend = [pid], vistos = new Set([pid]);
+  while (pend.length) { const padre = pend.pop(); for (const h of hijos.get(padre) || []) if (!vistos.has(h) && tabla.get(h).ticks >= tabla.get(padre).ticks) { vistos.add(h); res.set(h, tabla.get(h).ticks); pend.push(h); } }
+  return res;
+}
+
+// Descendientes de un PID (Windows): [] si no se puede leer o fuera de Windows.
+export async function descendientes(pid, { esperaMs = 8000 } = {}) {
+  if (!pid) return [];
+  return [...arbolDe(await tablaConReintento(esperaMs), pid).keys()];
+}
+
+// Cierra un hijo y su Ã¡rbol y VERIFICA que terminÃ³ (padre Y descendientes). Devuelve { terminado, intentos, vivos }.
+// kill() solo manda la seÃ±al: en Windows no mata a los nietos ni garantiza la salida, por eso taskkill /T /F y espera de confirmaciÃ³n.
+// 2.2.0 (Codex #2): antes se confirmaba solo al padre; un nieto con las tuberÃ­as heredadas podÃ­a quedar vivo y 'close' no llegaba nunca.
+// Ahora se toma una foto del Ã¡rbol ANTES de cortar; al final cada descendiente que siga vivo se mata por PID y, si sobrevive, va en `vivos`.
 export async function matarVerificado(hijo, { esperaMs = 5000, taskkill = true } = {}) {
   const salio = () => hijo.exitCode !== null || hijo.signalCode !== null;
   if (salio()) return { terminado: true, intentos: 0, vivos: [] };
-  const arbol = await descendientes(hijo.pid);
+  const arbol = arbolDe(await tablaConReintento(8000), hijo.pid); // Map pid -> ticks (identidad)
   let intentos = 0, padre = false;
   const confirmar = (ms) => new Promise((r) => { if (salio()) return r(true); const t = setTimeout(() => r(salio()), ms); hijo.once('exit', () => { clearTimeout(t); r(true); }); });
   for (; intentos < 2 && !padre; intentos++) {
@@ -112,10 +130,21 @@ export async function matarVerificado(hijo, { esperaMs = 5000, taskkill = true }
     } catch { /* ya no existe */ }
     padre = await confirmar(esperaMs);
   }
-  if (!padre) padre = !pidVivo(hijo.pid);
-  // descendientes que sobrevivieron (p. ej. huérfanos: taskkill /T ya no los alcanza por el árbol)
-  for (const p of arbol) if (pidVivo(p)) { try { process.kill(p); } catch {} }
-  if (arbol.some(pidVivo)) await espera(500);
-  const vivos = arbol.filter(pidVivo);
+  // 3.1.0 (estabilidad bajo carga): TerminateProcess es asincrono; con la maquina saturada el proceso puede seguir "vivo" unos segundos.
+  // Antes se miraba UNA vez tras 500 ms fijos; ahora se SONDEA hasta un tope. Cada sobreviviente se confirma con una foto fresca
+  // (mismo PID Y misma hora de creacion) antes de matarlo o informarlo: un PID reciclado por otro proceso no es nuestro.
+  const limiteDuro = Date.now() + 25000; // con la maquina saturada la foto CIM tarda segundos: sin foto se espera hasta el tope duro, nunca se mata a ciegas
+  let vivos = [];
+  for (;;) {
+    const cand = [...arbol.keys()].filter(pidVivo);
+    if (cand.length === 0) { vivos = []; break; }
+    const tabla = await tablaConReintento(8000);
+    if (!tabla) { vivos = cand; if (Date.now() >= limiteDuro) break; await espera(200); continue; } // identidad no verificable: no se mata a ciegas, se informa
+    vivos = cand.filter((p) => tabla.has(p) && tabla.get(p).ticks === arbol.get(p));
+    if (vivos.length === 0 || Date.now() >= limiteDuro) break;
+    for (const p of vivos) { try { process.kill(p); } catch {} }
+    await espera(100);
+  }
+  if (!padre) { const f = Date.now() + 2000; while (pidVivo(hijo.pid) && Date.now() < f) { try { process.kill(hijo.pid); } catch {} await espera(100); } padre = !pidVivo(hijo.pid); }
   return { terminado: padre && vivos.length === 0, intentos, vivos };
 }

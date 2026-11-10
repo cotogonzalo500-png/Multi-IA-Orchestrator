@@ -1,6 +1,10 @@
 # Changelog (Community Edition)
-## 2.3.14
-- Corrección encontrada con agy REAL sin login (usuario local temporal, sin credenciales): agy imprime «Authentication required… authentication failed or timed out» y el router lo clasificaba como `timeout` (reintentable, ayuda «el motor tardó demasiado»). Ahora `Get-ClaseError` reconoce `authentication required|failed` / «visit the URL to log in» como `autenticacion` (no reintentable, con instrucciones de login) antes de evaluar timeout. Prueba de regresión con el texto real. Evidencia: `validacion\agy-sin-login-real\`.
+
+## 3.1.0
+- Cierre de la rama 2.3.x: el cierre de procesos (`matarVerificado`) identifica descendientes por PID + fecha de creación y no mata a ciegas si no puede verificar; estrés controlado (32 corridas × 23 pruebas, 0 fallas).
+- `conexiones.ps1`: «Not logged in» gana a «logged in»; `-Probar` re-consulta la sesión; un `--version` fallido no se cachea 24 h.
+- Un 401/UNAUTHENTICATED junto a «timed out» se clasifica como `autenticacion` (no reintentable); `-Aislar` revisa el contenido de archivos hasta 20 MB y no copia los más grandes.
+- Configuración y datos de 2.3.x compatibles, sin migración. Solo Windows 10/11 con Windows PowerShell 5.1.
 
 ## 2.3.13
 - La tarjeta «Ahorro por chat» se muestra como estimación exploratoria («≈ N % est.», caché al 10 %), no como medición ni cuota.

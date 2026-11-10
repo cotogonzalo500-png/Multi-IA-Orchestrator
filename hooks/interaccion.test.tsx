@@ -155,7 +155,7 @@ test('Chats: sin resumen general no se dibujan KPI inventados', async ($, on) =>
 test('Sistema: KPI de estado (modo, esfuerzo, intensidad, versión) y controles viejos', async ($, on) => {
   const ui = await montarSec($, on, 'sistema')
   const alt = String((await svgAlt(ui, /^Estado del sistema/))?.props?.alt)
-  expect(alt).toMatch(/Elección de motores Automático; Esfuerzo general auto; Intensidad global .+; Versión v2\.3\.\d+/)
+  expect(alt).toMatch(/Elección de motores Automático; Esfuerzo general auto; Intensidad global .+; Versión v\d+\.\d+\.\d+/)
   expect(await ui.find({ type: 'Button', text: /Reiniciar Claude/ })).toBeTruthy()
   expect(await ui.find({ type: 'Button', text: /Cambiar/ })).toBeTruthy()
   await ui.unmount()
@@ -330,7 +330,7 @@ test('Intensidad: «Heredar global» quita la preferencia solo de este chat', as
 test('Pixel Pro: la cabecera lleva la mascota pixel Chispa (naranja, crispEdges) y ninguna hoja', async ($, on) => {
   vistaYDatos(on, {})
   const ui = await montar($)
-  const cab = await svgAlt(ui, /^Multi-IA 2\.3\.\d+ /)
+  const cab = await svgAlt(ui, /^Multi-IA \d+\.\d+\.\d+ /)
   const src = String(cab?.props?.source ?? '')
   expect(src).toContain('Chispa, mascota Multi-IA')
   expect(src).toContain('#ff9b38')
