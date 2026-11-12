@@ -22,7 +22,7 @@ const sh = (shape: string, value: unknown) => ({ value: { value: { shape, value 
 const casos: [string, number, string][] = [['c320', 36, 'dock'], ['c360', 40, 'dock'], ['c390', 44, 'dock'], ['c416', 46, 'dock'], ['c480', 54, 'dock'], ['centro', 140, 'desktop']]
 const SECS = ['resumen', 'motores', 'actividad', 'consumo', 'chats', 'sistema']
 // Texto propio de cada sección: 'Multi-IA' sale del título y pasaba aunque el cuerpo no dibujara nada (auditoría Codex #8).
-const MARCA: Record<string, string> = { resumen: 'Tokens ahorrados', motores: 'SESIÓN 5 H', actividad: 'Historial ·', consumo: 'Consumo y ahorro', chats: 'Exportar MD', sistema: 'Reiniciar Claude' }
+const MARCA: Record<string, string> = { resumen: 'Consumo de Claude', motores: 'SESIÓN 5 H', actividad: 'Historial ·', consumo: 'Consumo y ahorro', chats: 'Exportar MD', sistema: 'Reiniciar Claude' }
 // Precalentamiento: el primer montaje paga la carga en frío (~2 s) y dejaba a c320 al borde de los 5 s.
 // Verifica algo real (la cabecera con versión) para no ser un test vacío.
 test('arbol precalentamiento', async ($, on) => {

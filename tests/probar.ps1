@@ -2099,6 +2099,14 @@ T '3.3.0 auditoria cruzada: sin cache con -Escribir, sin fragmentar con -Escribi
     $r = Get-Content (Join-Path (Split-Path $sc -Parent) 'hooks\register.tsx') -Raw -Encoding UTF8
     Afirmar ($r -match "if \(v\.t === 'cambios'\) \{ e\.fin = v\.f; continue \}") 'el evento cambios no debe sobrescribir t/x/m de una ejecucion ya cerrada'
 }
+T '3.3.1 metricas: los KPI no suman proveedores, muestran terminadas/fallidas/recuperadas y el ahorro dice No determinable sin base; chats.ps1 mantiene total NO DISPONIBLE' {
+    $r = Get-Content (Join-Path (Split-Path $sc -Parent) 'hooks\register.tsx') -Raw -Encoding UTF8
+    Afirmar ($r -cnotmatch "r: 'Tokens totales'") 'el KPI global no puede llamarse Tokens totales (sumaba Claude + Codex + Antigravity)'
+    Afirmar ($r -match "r: 'Consumo de Claude'" -and $r -match "r: 'Delegaciones terminadas'" -and $r -match "r: 'Fallas y recuperadas'" -and $r -match "r: 'Ahorro por chat', c: T\.ahorro, ic: 'moneda'") 'faltan los cuatro KPI de 3.3.1'
+    Afirmar ($r -match "const VERSION = '3\.3\.1'") 'VERSION del panel desalineada'
+    $c = Get-Content (Join-Path $sc 'chats.ps1') -Raw -Encoding UTF8
+    Afirmar ($c -match "total = \[ordered\]@\{ valor = \`$null; nivel = 'NO DISPONIBLE'") 'chats.ps1 no debe producir un total entre proveedores'
+}
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""; Write-Host "Resultado: $ok ok, $mal con falla$(if ($omit) { ", $omit omitidas (solo DEV)" })" -ForegroundColor $(if ($mal) { 'Red' } else { 'Green' })
 exit $(if ($mal) { 1 } else { 0 })

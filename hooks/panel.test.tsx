@@ -58,7 +58,12 @@ test('el panel muestra señal de vida, consumo, sistema y actividad por sección
   const textoDe = prepararTarjetas($, on)
   // el interruptor se mudó a Sistema (compacto) y al menú lateral (Centro)
   expect(await textoDe('sistema', 'Button', /Encendido/)).toBeTruthy()
-  expect(await textoDe('resumen', 'Svg', /Tokens totales/)).toContain('Tokens totales')
+  // 3.3.1: ya no hay «Tokens totales» (sumaba proveedores): consumo de Claude, delegaciones terminadas, fallas y ahorro con base minima
+  const kpis = await textoDe('resumen', 'Svg', /Consumo de Claude/)
+  expect(kpis).toContain('Consumo de Claude')
+  expect(kpis).toContain('no se suman')
+  expect(kpis).toContain('Delegaciones terminadas')
+  expect(kpis).not.toContain('Tokens totales')
   expect(await textoDe('motores', 'Text', /Última lectura exitosa/)).toContain('lectura')
 })
 test('el panel muestra señal de vida, consumo, sistema y actividad por sección (3)', async ($, on) => {

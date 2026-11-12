@@ -1,5 +1,9 @@
 # Changelog (Community Edition)
 
+
+## 3.3.1
+- Métricas honestas: el panel ya no suma consumo de Claude, Codex y Antigravity. KPI: Consumo de Claude (con Codex y Antigravity separados, «no se suman»), Delegaciones terminadas, Fallas y recuperadas, Ahorro por chat (estimación exploratoria o «No determinable»).
+- Filosofía: máxima calidad y confiabilidad; el ahorro de cuota de Claude es un beneficio potencial, no una promesa. Sin cambios de router ni de datos.
 ## 3.3.0
 - Antigravity escribe de verdad: `delegar-agy.ps1 -Escribir -Carpeta` (solo dentro de la carpeta autorizada, checkpoint previo, lista de archivos creados/modificados/borrados, verificacion propia). Nunca se usa `--dangerously-skip-permissions`.
 - Politica de Calidad Maxima por defecto: Codex y Antigravity usan el mejor modelo descubierto con el maximo esfuerzo compatible; el modelo de Claude solo se detecta y muestra, nunca se cambia.

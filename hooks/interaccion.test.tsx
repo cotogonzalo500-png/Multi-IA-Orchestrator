@@ -258,14 +258,14 @@ test('Ahorro por chat: un chat conocido sin delegaciones muestra 0 % (dato real)
   expect(await altKpi(ui)).toMatch(/Ahorro por chat 0 %/)
   await ui.unmount()
 })
-test('Las 4 tarjetas: tokens totales, ahorrados (con delegaciones), ahorro por chat y costo, y nada más', async ($, on) => {
+test('Las 4 tarjetas 3.3.1: consumo de Claude, delegaciones terminadas, fallas y ahorro por chat, y nada más', async ($, on) => {
   vistaYDatos(on, {}, { chats: chatsConDatos('chat-B') })
   const ui = await montar($)
   const g = await altKpi(ui)
-  const orden = ['Tokens totales', 'Tokens ahorrados', 'Ahorro por chat', 'Costo estimado'].map(k => g.indexOf(k))
+  const orden = ['Consumo de Claude', 'Delegaciones terminadas', 'Fallas y recuperadas', 'Ahorro por chat'].map(k => g.indexOf(k))
   expect(orden.every(x => x >= 0)).toBe(true)
   expect([...orden].sort((a, b) => a - b)).toEqual(orden)
-  expect(g).toMatch(/Tokens ahorrados .*[0-9]+ delegaci/)
+  expect(g).not.toMatch(/Tokens totales|Tokens ahorrados|Costo estimado/)
   expect(g).not.toMatch(/delegados (llamadas)|ejecuciones|recuperaciones/)
   await ui.unmount()
 })
@@ -357,10 +357,10 @@ test('Pixel Pro: sin cx/ag por hora (datos viejos) el 24h cae a una sola serie �
   await ui.unmount()
 })
 // --- 2.3.0 · arreglos de la auditoría UX (Antigravity propuso, Claude verificó contra el código) ---
-test('UX 2.3.0: «Tokens totales» suma Claude + delegado (global)', async ($, on) => {
+test('UX 3.3.1: el consumo de Claude va solo y Codex/Antigravity al lado sin sumarse (global)', async ($, on) => {
   vistaYDatos(on, {}, { chats: chatsConDatos('chat-B') })
   const ui = await montar($)
-  expect(await altKpi(ui)).toMatch(/^Métricas: Tokens totales [0-9]/)
+  expect(await altKpi(ui)).toMatch(/^Métricas: Consumo de Claude [0-9].*no se suman/)
   await ui.unmount()
 })
 test('UX 2.3.0: un ahorro negativo se muestra con signo (no se esconde como 0)', async ($, on) => {

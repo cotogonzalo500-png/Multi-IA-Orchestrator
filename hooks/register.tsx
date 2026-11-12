@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '3.3.0'
+const VERSION = '3.3.1'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -1257,11 +1257,17 @@ export const register: Register = on => {
     // 2.3.1: cuatro tarjetas fijas (2×2). Global = registro del plugin; «Ahorro por chat» = solo la conversación actual. Delegado ≠ ahorro: el ahorro es delegado − costo de coordinar (estimado).
     const sinD = (v: string) => v === 's/d' || v === '—'
     const nDel = d.deleg_n ?? 0
+    // 3.3.1 (métricas): ya no se suman proveedores. 1) consumo de Claude solo, con Codex y Antigravity al lado y separados;
+    // 2) trabajo delegado terminado; 3) resultado de las delegaciones (ok / fallidas / recuperadas); 4) ahorro de Claude solo si hay base mínima, si no «No determinable».
+    const sumCx = horas.reduce((a, x) => a + (x.cx ?? 0), 0), sumAg = horas.reduce((a, x) => a + (x.ag ?? 0), 0)
+    const partido = horas.length > 0 && horas.every(x => typeof x.cx === 'number' && typeof x.ag === 'number')
+    const otros = partido ? 'Codex ' + fmt(sumCx) + ' · Antigravity ' + fmt(sumAg) + ' · no se suman (24 h)' : 'Delegado ' + fmt(sumD) + ' (24 h) · cuentas separadas, no se suman'
+    const nChatDel = chAct?.delegaciones ?? 0
     const kpiCuatro = [
-      { v: sinD(kG[0].v) ? 'Sin datos' : kG[0].v, r: 'Tokens totales', c: T.violeta, ic: 'chip', d: 'Claude + delegado (global)' },
-      { v: sinD(kG[4].v) ? 'Sin datos' : kG[4].v, r: 'Tokens ahorrados', c: T.okSuave, ic: 'rayo', d: nDel + (nDel === 1 ? ' delegación' : ' delegaciones') },
-      { v: sinD(kC[6].v) ? 'Sin datos' : /^-?\d+ %$/.test(kC[6].v) && kC[6].v !== '0 %' ? '≈ ' + kC[6].v + ' est.' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: 'exploratoria, no es cuota ni medición · caché al 10 %' },   // 2.3.12: cuenta tokens de la CLI (con su contexto fijo de entrada), no solo lo entregado
-      { v: sinD(kG[3].v) ? 'Sin datos' : kG[3].v, r: 'Costo estimado', c: T.ambar, ic: 'monedas', d: 'tokens de Claude (coordinar)' },
+      { v: horas.length ? fmt(sumC) : 'Sin datos', r: 'Consumo de Claude', c: T.violeta, ic: 'chip', d: horas.length ? otros : 'sin datos' },
+      { v: ef ? String(ef.exitosas) : 'Sin datos', r: 'Delegaciones terminadas', c: T.okSuave, ic: 'rayo', d: ef ? ef.exitosas_con_tokens + ' con salida · ' + nDel + (nDel === 1 ? ' llamada' : ' llamadas') + ' · terminar no es verificar' : 'sin datos' },
+      { v: ef ? ef.fallidas + ' fallidas' : 'Sin datos', r: 'Fallas y recuperadas', c: T.ambar, ic: 'monedas', d: ef ? ef.fallas_recuperadas + ' recuperadas por cambio de motor' : 'sin datos' },
+      { v: sinD(kC[6].v) ? 'Sin datos' : /^-?\d+ %$/.test(kC[6].v) && kC[6].v !== '0 %' ? '≈ ' + kC[6].v + ' est.' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: 'estimación exploratoria, no es cuota ni medición · caché al 10 % · sin base: No determinable' },   // 3.3.1: estimacion exploratoria (cache al 10 %); "No determinable" cuando falta costo o consumo
     ]
     const kpiCols = 2, mitad = centro ? Math.floor(anchoU * 0.49) : anchoU
     const nDeleg24 = eventos.filter(v => v.t === 'fin' && Date.now() - msEv(v.f) < 86400000).length
