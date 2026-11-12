@@ -19,6 +19,8 @@ function T($nombre, [scriptblock]$caso) {
     }
 }
 function Afirmar($c, $m) { if (-not $c) { throw $m } }
+# 3.3.0: pruebas del router economico/intensidad (anteriores a Calidad Maxima): fuerzan la politica 'normal' solo durante el caso.
+function TN($nombre, [scriptblock]$caso) { $env:MULTIIA_POLITICA = 'normal'; try { T $nombre $caso } finally { Remove-Item Env:\MULTIIA_POLITICA -ErrorAction SilentlyContinue } }
 function PS1($archivo, [string[]]$a = @()) { & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $sc $archivo) @a 2>&1 }
 
 Write-Host "== Sintaxis y codificacion"
@@ -85,7 +87,7 @@ T 'historial: con 3 resultados reales, elegir muestra la tasa de exito y avisa s
     Remove-Item (Join-Path $tmp 'resultados.jsonl')
 }
 
-T 'aprendizaje: si el plan economico fallo mas de la mitad (5+ ejecuciones), elegir sube de calidad y lo explica' {
+TN 'aprendizaje: si el plan economico fallo mas de la mitad (5+ ejecuciones), elegir sube de calidad y lo explica' {
     Remove-Item (Join-Path $tmp 'resultados.jsonl') -ErrorAction SilentlyContinue
     1..5 | ForEach-Object { Add-Evento -Tipo 'error' -Destino 'codex' -Tarea 'codigo' -Seg 3 }
     $s = (PS1 'elegir.ps1' @('-Tarea', 'codigo', '-Calidad', 'economica') | Out-String) | ConvertFrom-Json
@@ -119,7 +121,7 @@ T 'estimacion: -Estimar informa tokens estimados y no ejecuta nada' {
     $o = (PS1 'delegar.ps1' @('-Tarea', 'texto', '-Prompt', ('a' * 400), '-Forzar', '-Estimar') | Out-String)
     Afirmar ($o -match 'estimacion' -and $o -match 'ESTIMADO' -and $o -match 'superado|alerta|de 1000') "salida: $o"
 }
-T 'cache: una respuesta guardada se reutiliza sin llamar a ningun motor' {
+TN 'cache: una respuesta guardada se reutiliza sin llamar a ningun motor' {
     . (Join-Path $sc '_comun.ps1')
     $sel = (PS1 'elegir.ps1' @('-Tarea', 'texto') | Out-String) | ConvertFrom-Json
     $k = Get-ClaveCache 'texto' 'resumi esto en cache' @() ("{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f (Get-Location).Path, $false, $sel.calidad, $sel.destino, $sel.modelo, $sel.perfil, $sel.esfuerzo)
@@ -322,7 +324,7 @@ Write-Host "== Etapa 3: registro de motores, ciclo de vida y auditoria"
 T 'motores.ps1: 3 motores; Codex y Antigravity siempre "Modelo no verificable" (ninguna CLI informa el modelo)' {
     $m = @((PS1 'motores.ps1' | Out-String) | ConvertFrom-Json | ForEach-Object { $_ })
     Afirmar ($m.Count -eq 3 -and (($m.id | Sort-Object) -join ',') -eq 'agy,claude,codex') 'motores'
-    foreach ($x in ($m | Where-Object { $_.id -in 'codex', 'agy' })) { Afirmar ($null -eq $x.modelo_verificado -and $x.modelo -eq 'Modelo no verificable') "$($x.id) declara un modelo verificado" }
+    foreach ($x in ($m | Where-Object { $_.id -in 'codex', 'agy' })) { Afirmar ((($null -eq $x.modelo_verificado) -and $x.modelo -eq 'Modelo no verificable') -or ($x.modelo_verificado -and $x.fuente)) "$($x.id) declara un modelo verificado sin fuente" }
 }
 T 'motores: Claude toma el modelo EXACTO del snapshot de la sesion; sin snapshot, no verificable' {
     $c = @((PS1 'motores.ps1' | Out-String) | ConvertFrom-Json | ForEach-Object { $_ }) | Where-Object { $_.id -eq 'claude' }
@@ -375,7 +377,7 @@ T 'delegar una imagen avisa que no hay motor y sale con codigo 3' {
     $cod = $LASTEXITCODE; $ErrorActionPreference = 'Stop'
     Afirmar ($o -match 'SIN-DELEGAR:ninguno') "salida: $o"; Afirmar ($cod -eq 3) "codigo $cod"
 }
-T 'contenido en calidad maxima pide Opus y revision cruzada' {
+TN 'contenido en calidad maxima pide Opus y revision cruzada' {
     $el = (PS1 'elegir.ps1' @('-Tarea', 'contenido', '-Calidad', 'maxima') | Out-String) | ConvertFrom-Json
     Afirmar ($el.perfil -eq 'opus' -and $el.segundo) 'esperaba opus + segundo'
 }
@@ -729,7 +731,7 @@ T 'delegar-agy.ps1: un prompt que no entra en la linea de comandos de Windows se
         $o1 = ($o -replace '\s+', ' ')   # el ErrorRecord se parte segun ancho de consola/ruta (2.3.8: fallaba en un clon con ruta larga)
         Afirmar ($o1 -match 'maximo 28000' -and $o1 -match '-Archivo') "falta el motivo claro: $o"
         $src = Get-Content (Join-Path $sc 'delegar-agy.ps1') -Raw
-        Afirmar ($src -notmatch "'--add-dir'") 'sigue el desvio por archivo temporal que agy no puede leer'
+        Afirmar (([regex]::Matches($src, "'--add-dir'")).Count -eq 1 -and $src -match "if \(\`$Escribir\)") 'sigue el desvio por archivo temporal; --add-dir solo se admite con -Escribir (3.3.0)'
     } finally { $env:MULTIIA_AGY_EXE = $viejoA }
 }
 T '2.3.8 auditoria Codex: PEM es secreto y la deduplicacion reconoce JSON con espacios' {
@@ -1570,7 +1572,7 @@ T 'intensidad 2.0: cambio global persiste y se verifica; chat propio gana; quita
     $rechazo = $false; try { $null = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $sc 'intensidad.ps1') -Valor turbo -Global 2>&1 } catch { }; $rechazo = ($LASTEXITCODE -ne 0); Afirmar ($rechazo -and (Get-Config).intensidad -eq 'automatico') 'acepto un valor invalido'
     $ev = Get-Content (Join-Path $tmp 'eventos.jsonl') -Raw; Afirmar ($ev -match '"tipo":"intensidad"') 'el cambio no quedo en el historial'
 }
-T 'intensidad 2.0: el router cambia de verdad con cada modo y lo explica; manual y -Forzar no se tocan' {
+TN 'intensidad 2.0: el router cambia de verdad con cada modo y lo explica; manual y -Forzar no se tocan' {
     LimpiarDatos; Remove-Item (Join-Path $tmp 'config.json') -Force -ErrorAction SilentlyContinue; $env:MULTIIA_DATOS = $tmp; . (Join-Path $sc '_comun.ps1')
     $r = @{}
     foreach ($m in 'bajo', 'medio', 'alto', 'automatico') {
@@ -1587,7 +1589,7 @@ T 'intensidad 2.0: el router cambia de verdad con cada modo y lo explica; manual
     $mm = Elegir-Int 'trivial' 50; Afirmar ($mm.motivo -notmatch 'intensidad') "en manual no aplica la intensidad: $($mm.motivo)"
     $c = Get-Config; $c.modo = 'automatico'; Save-Config $c; Inten @('-Valor', 'automatico', '-Global') | Out-Null
 }
-T 'intensidad 2.0: la preferencia del chat gobierna solo a ese chat; la decision auditada guarda intensidad y origen' {
+TN 'intensidad 2.0: la preferencia del chat gobierna solo a ese chat; la decision auditada guarda intensidad y origen' {
     LimpiarDatos; Remove-Item (Join-Path $tmp 'config.json') -Force -ErrorAction SilentlyContinue; $env:MULTIIA_DATOS = $tmp; . (Join-Path $sc '_comun.ps1')
     Inten @('-Valor', 'alto', '-Global') | Out-Null; Inten @('-Valor', 'bajo', '-Chat', 'chat-X') | Out-Null
     $x = Elegir-Int 'codigo' 2000 'chat-X'; $y = Elegir-Int 'codigo' 2000 'chat-Y'
@@ -1620,7 +1622,7 @@ T 'Crystal Pro 2.1.0 (estatico, solo codigo): alcance (alc), cuotas 5 h / 7 d e 
     Afirmar ($reg -match 'const iconoAgy') 'falta iconoAgy'
     Afirmar ($reg -match "'24h', '7d', '30d'") 'falta el selector de rango 24h/7d/30d'
 }
-T '2.2.0 elegir.ps1: siempre emite JSON valido; maxima nunca retiene en Claude; alta intensidad asigna segundo motor y lo explica; paralelo es sugerencia documentada' {
+TN '2.2.0 elegir.ps1: siempre emite JSON valido; maxima nunca retiene en Claude; alta intensidad asigna segundo motor y lo explica; paralelo es sugerencia documentada' {
     LimpiarDatos; Remove-Item (Join-Path $tmp 'config.json') -Force -ErrorAction SilentlyContinue; $env:MULTIIA_DATOS = $tmp; . (Join-Path $sc '_comun.ps1')
     Inten @('-Valor', 'automatico', '-Global') | Out-Null
     $m = (PS1 'elegir.ps1' @('-Tarea', 'trivial', '-Tamano', '100', '-Calidad', 'maxima') | Out-String) | ConvertFrom-Json
@@ -2042,7 +2044,7 @@ T '2.3.11: Test-Secreto detecta tokens GitHub/AWS/JWT, credenciales en URL y val
 }
 T 'delegar-agy: todo prompt lleva la orden de no usar herramientas (2.3.11: "numeros del 1 al 400" daba respuesta vacia por RunCommand denegado)' {
     $s = Get-Content (Join-Path $sc 'delegar-agy.ps1') -Raw
-    Afirmar ($s -match "\`$argsAgy = @\('-p', \(\`$Prompt \+ .*no uses herramientas ni comandos") 'el prompt enviado a agy no incluye la orden de no usar herramientas'
+    Afirmar ($s -match "\`$argsAgy = @\('-p', \(\`$Prompt \+ \`$cola\)\)" -and $s -match 'no uses herramientas ni comandos' -and $s -match "No corras comandos") 'el prompt enviado a agy no incluye la orden de no usar herramientas (lectura) o no correr comandos (escritura sin -Verificar)'
 }
 T '3.1.0 auditoria Codex: 401 + timed out es autenticacion (no reintentable); -Aislar mira contenido hasta 20 MB' {
     foreach ($x in @('HTTP 401 Unauthorized: request timed out', 'UNAUTHENTICATED: login timed out')) { $r = Get-ClaseError -Texto $x -Salida 1; Afirmar ($r.clase -eq 'autenticacion' -and -not $r.reintentable) "'$x' dio '$($r.clase)'" }
@@ -2054,6 +2056,48 @@ T '3.1.0 conexiones.ps1: "Not logged in" gana a "logged in"; -Probar re-consulta
     Afirmar ($c.IndexOf("-match '(?i)not logged') { 'sin sesion' }") -lt $c.IndexOf("-match '(?i)logged in') { 'sesion iniciada' }")) 'el chequeo de not logged debe ir antes que logged in'
     Afirmar ($c -match 'Vigente \$reg\.auth 3600\) -and \$Probar -notin') '-Probar debe saltar la cache de auth'
     Afirmar ($c -match 'Vigente \$reg\.version 86400\) -and \$reg\.version\.valor') 'un fallo de --version no debe cachearse'
+}
+T '3.2.0 Codex escritura: delegar.ps1 rechaza (exit 5) una tarea de escritura sin -Escribir/-Aislar; -Escribir exige -Carpeta' {
+    $o = (PS1 'delegar.ps1' @('-Tarea', 'codigo', '-Prompt', 'Corregi el bug de calc.py y crea test_calc.py', '-Carpeta', $tmp) | Out-String); $cod = $LASTEXITCODE
+    Afirmar ($cod -eq 5 -and $o -match 'SIN-DELEGAR:escritura') "debia salir 5 (salio $cod): $o"
+    $o = (PS1 'delegar.ps1' @('-Tarea', 'codigo', '-Prompt', 'Corregi calc.py', '-Escribir') | Out-String); $cod = $LASTEXITCODE
+    Afirmar ($cod -eq 5 -and $o -match 'exige -Carpeta') "-Escribir sin -Carpeta debia salir 5 (salio $cod): $o"
+}
+T '3.2.0 Codex escritura: delegar-codex.ps1 pasa workspace-write solo con -Escribir, red opt-in, carpetas prohibidas y registro de archivos' {
+    $dc = Get-Content (Join-Path $sc 'delegar-codex.ps1') -Raw
+    Afirmar ($dc -match "if \(\`$Escribir\) \{ 'workspace-write' \} else \{ 'read-only' \}") 'el sandbox ya no depende de -Escribir'
+    Afirmar ($dc -match 'sandbox_workspace_write\.network_access=true') 'falta el opt-in de red'
+    Afirmar ($dc -notmatch 'danger-full-access|dangerously-bypass') 'no se permite desactivar el sandbox'
+    Afirmar ($dc -match 'Escritura NO permitida' -and $dc -match 'Get-Instantanea' -and $dc -match 'Tarea INCOMPLETA') 'faltan preflight de carpeta, registro de archivos o deteccion de incompleta'
+    $d = Get-Content (Join-Path $sc 'delegar.ps1') -Raw
+    Afirmar ($d -match 'if \(\$Escribir\) \{ \$p\.Escribir = \$true \}' -and $d -match '\$q\.Escribir = \$true') 'delegar.ps1 no propaga -Escribir (causa raiz del solo-lectura)'
+    $ErrorActionPreference = 'Continue'
+    try { $o = (PS1 'delegar-codex.ps1' @('-Prompt', 'x', '-Escribir', '-Carpeta', $env:TEMP) | Out-String); $cod = $LASTEXITCODE } finally { $ErrorActionPreference = 'Stop' }
+    Afirmar ($cod -ne 0 -and $o -match 'NO permitida|sesi') "escribir en TEMP debia rechazarse: $o"
+}
+T '3.3.0 agy escritura: arranca en la carpeta autorizada, verifica por su cuenta y delegar.ps1 pasa modelo/escritura' {
+    $s = Get-Content (Join-Path $sc 'delegar-agy.ps1') -Raw
+    Afirmar ($s -match 'CurrentDirectory = \$carpetaOk') 'agy debe arrancar con cwd = carpeta autorizada (si no, la allow-list command() no coincide)'
+    Afirmar ($s -match 'verificacion propia' -and $s -match 'vacioDenegado') 'falta la verificacion propia ante RunCommand denegado'
+    $codigo = ($s -split "`n" | Where-Object { $_ -notmatch '^\s*#' } | ForEach-Object { $_ -replace '\s#.*$', '' }) -join "`n"
+    Afirmar ($codigo -notmatch "dangerously-skip-permissions|'auto'") 'agy no puede usar modos que omiten protecciones'
+    $d = Get-Content (Join-Path $sc 'delegar.ps1') -Raw
+    Afirmar ($d -match '\$Verificar' -and $d -match '-Escribir' -and $d -match '-Carpeta') 'delegar.ps1 no propaga Verificar/Escribir/Carpeta a agy'
+}
+T '3.3.0 Codex escritura: tambien registra el evento "cambios" (MIA_Cambios) y Get-Motores informa politica/esfuerzo/solo_lectura' {
+    $s = Get-Content (Join-Path $sc 'delegar-codex.ps1') -Raw
+    Afirmar ($s -match 'MIA_Cambios = \[ordered\]' -and $s -match "NUEVO:\*") 'delegar-codex.ps1 debe publicar MIA_Cambios para que delegar.ps1 emita el evento cambios'
+    $c = Get-Content (Join-Path $sc '_comun.ps1') -Raw
+    Afirmar ($c -match 'esfuerzo_pedido' -and $c -match 'solo_lectura' -and $c -match 'politica = \$pol') 'Get-Motores debe exponer politica, esfuerzo_pedido y solo_lectura'
+}
+T '3.3.0 auditoria cruzada: sin cache con -Escribir, sin fragmentar con -Escribir, checkpoint con ID unico y "cambios" no pisa el estado terminal del panel' {
+    $d = Get-Content (Join-Path $sc 'delegar.ps1') -Raw
+    Afirmar ($d -match '\$cacheable = -not \$SinCache -and -not \$Escribir') 'una escritura no puede servirse desde la cache'
+    $a = Get-Content (Join-Path $sc 'delegar-agy.ps1') -Raw
+    Afirmar ($a -match '\$Escribir -and \(\$Prompt\.Length \+ \(\$bloques') 'con -Escribir y material grande debe rechazar en vez de fragmentar'
+    Afirmar ($a -match "'agy-' \+ \(Get-Date -Format 'yyyyMMdd-HHmmss'\) \+ '-' \+ \(\[guid\]") 'el ID del checkpoint debe incluir un sufijo unico'
+    $r = Get-Content (Join-Path (Split-Path $sc -Parent) 'hooks\register.tsx') -Raw -Encoding UTF8
+    Afirmar ($r -match "if \(v\.t === 'cambios'\) \{ e\.fin = v\.f; continue \}") 'el evento cambios no debe sobrescribir t/x/m de una ejecucion ya cerrada'
 }
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""; Write-Host "Resultado: $ok ok, $mal con falla$(if ($omit) { ", $omit omitidas (solo DEV)" })" -ForegroundColor $(if ($mal) { 'Red' } else { 'Green' })

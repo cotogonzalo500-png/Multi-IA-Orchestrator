@@ -1,5 +1,15 @@
 # Changelog (Community Edition)
 
+## 3.3.0
+- Antigravity escribe de verdad: `delegar-agy.ps1 -Escribir -Carpeta` (solo dentro de la carpeta autorizada, checkpoint previo, lista de archivos creados/modificados/borrados, verificacion propia). Nunca se usa `--dangerously-skip-permissions`.
+- Politica de Calidad Maxima por defecto: Codex y Antigravity usan el mejor modelo descubierto con el maximo esfuerzo compatible; el modelo de Claude solo se detecta y muestra, nunca se cambia.
+- Panel: evento `cambios`, tarjeta Motores con modelo pedido, esfuerzo y calidad; selectores de Codex y Antigravity en Ajustes.
+- Auditoria cruzada: sin cache ni fragmentacion con `-Escribir`, checkpoint con ID unico, `cambios` no pisa el estado terminal.
+- Limites conocidos: `-Verificar` corre con los permisos del usuario; el candado de carpeta es por ruta exacta; el checkpoint copia por nombre.
+
+## 3.2.0
+- Codex puede programar: `-Escribir` (workspace-write solo en `-Carpeta`) y `-Red` opcional; preflight de carpeta, lista de archivos cambiados y exit 5/6 para tareas de escritura sin permiso o incompletas.
+
 ## 3.1.0
 - Cierre de la rama 2.3.x: el cierre de procesos (`matarVerificado`) identifica descendientes por PID + fecha de creación y no mata a ciegas si no puede verificar; estrés controlado (32 corridas × 23 pruebas, 0 fallas).
 - `conexiones.ps1`: «Not logged in» gana a «logged in»; `-Probar` re-consulta la sesión; un `--version` fallido no se cachea 24 h.

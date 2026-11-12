@@ -486,6 +486,31 @@ test('consola: Reinicio = "Reinicio del panel o de Claude"', async ($, on) => {
   const ts = await textosConsola($, on, [{ ...E('reinicio', 3), d: 'claude' }])
   expect(ts.find(t => /Reinicio del panel o de Claude/.test(t))).toBeTruthy()
 })
+const todosTextos = async ($: any, on: any, datos: object) => {
+  sembrar(on, { seccion: 'actividad', forig: 'todo' }, { ...DATOS_V2, ...datos })
+  const ui = await $.ui.mount({ ...CENTRO, surface: 'desktop' })
+  const ts = ((await ui.findAll({ type: 'Text' })) as any[]).map(n => String(n.text ?? ''))
+  await ui.unmount()
+  return ts
+}
+test('consola: cambios ="<IA> modificó archivos" con detalle y carpeta (agy atribuido a Antigravity)', async ($, on) => {
+  const ts = await todosTextos($, on, { eventos: [{ ...E('cambios', 3, { i: 'c1' }), d: 'agy', x: '2 creados · 1 modificados · 0 borrados · checkpoint si', m: 'D:\\proyecto' }] })
+  expect(ts.find(t => /✎ Antigravity modificó archivos/.test(t))).toBeTruthy()
+  expect(ts.find(t => /2 creados · 1 modificados/.test(t))).toBeTruthy()
+  expect(ts.find(t => /Carpeta: D:\\proyecto/.test(t))).toBeTruthy()
+  expect(ts.find(t => /Evento: cambios/.test(t))).toBeFalsy()
+})
+test('Motores: Claude solo lectura; Codex/agy con pedido, esfuerzo, efectivo no verificable y Calidad: Máxima', async ($, on) => {
+  const ts = await todosTextos($, on, { motores: [
+        { id: 'claude', nombre: 'Claude', disponible: true, solo_lectura: true, politica: 'maxima', modelo: 'claude-sonnet-5-5', modelo_verificado: 'claude-sonnet-5-5' },
+        { id: 'codex', nombre: 'Codex', disponible: true, politica: 'maxima', modelo_pedido: 'gpt-6.1-sol', esfuerzo_pedido: 'ultra', esfuerzo_efectivo: 'no verificable', modelo: 'Modelo no verificable', modelo_verificado: null },
+        { id: 'agy', nombre: 'Antigravity', disponible: true, politica: 'maxima', modelo_pedido: 'gemini-4-argon-high', esfuerzo_pedido: 'high', esfuerzo_efectivo: 'no verificable', modelo: 'Modelo no verificable', modelo_verificado: null },
+  ] })
+  expect(ts.find(t => /Claude: modelo efectivo \(solo lectura/.test(t))).toBeTruthy()
+  expect(ts.find(t => /Codex: pedido gpt-6\.1-sol \/ ultra · efectivo no verificable/.test(t))).toBeTruthy()
+  expect(ts.find(t => /Antigravity: pedido gemini-4-argon-high \/ high/.test(t))).toBeTruthy()
+  expect(ts.find(t => /Calidad: Máxima/.test(t))).toBeTruthy()
+})
 test('consola: Tipo desconocido muestra "Evento: <tipo>" en vez de inventar una frase', async ($, on) => {
   const ts = await textosConsola($, on, [E('cambio-motor', 3), E('tipo-raro', 2)])
   expect(ts.find(t => /Evento: cambio-motor/.test(t))).toBeTruthy()

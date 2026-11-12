@@ -14,12 +14,13 @@ param(
     [switch]$Ver, [switch]$Encender, [switch]$Apagar,
     [ValidateSet('automatico', 'manual')][string]$Modo,
     [ValidateSet('auto', 'economica', 'equilibrada', 'maxima')][string]$Calidad,
+    [ValidateSet('maxima', 'normal')][string]$Politica,
     [string]$Manual, [Nullable[long]]$Tope, [Nullable[int]]$AvisoPct, [Nullable[int]]$CacheHoras,
     [switch]$AgregarCuenta, [string]$Id, [string]$Tipo, [string]$Ruta, [string]$Etiqueta,
     [string]$Activar, [string]$Desactivar, [string]$QuitarCuenta, [switch]$Recuperar
 )
 . (Join-Path $PSScriptRoot '_comun.ps1')
-$esEscritura = $Encender -or $Apagar -or $Modo -or $Calidad -or $Manual -or ($null -ne $Tope) -or ($null -ne $AvisoPct) -or ($null -ne $CacheHoras) -or $AgregarCuenta -or $Activar -or $Desactivar -or $QuitarCuenta -or $Recuperar
+$esEscritura = $Encender -or $Apagar -or $Modo -or $Calidad -or $Politica -or $Manual -or ($null -ne $Tope) -or ($null -ne $AvisoPct) -or ($null -ne $CacheHoras) -or $AgregarCuenta -or $Activar -or $Desactivar -or $QuitarCuenta -or $Recuperar
 $bloqueada = $false
 if ($esEscritura) { $bloqueada = Lock-Config; if (-not $bloqueada) { Write-Error 'config.json esta ocupada por otro proceso; reintenta'; exit 2 } }   # leer-modificar-guardar bajo candado
 $cfg = Get-Config
@@ -37,6 +38,7 @@ if ($Encender) { $cfg.activo = $true; $cambio = $true }
 if ($Apagar) { $cfg.activo = $false; $cambio = $true }
 if ($Modo) { $cfg.modo = $Modo; $cambio = $true }
 if ($Calidad) { $cfg.calidad = $Calidad; $cambio = $true }
+if ($Politica) { $cfg | Add-Member -NotePropertyName calidad_politica -NotePropertyValue $Politica -Force; $cambio = $true }   # 3.3.0: Calidad Maxima (mejores modelos + maximo esfuerzo) o normal
 
 if ($null -ne $Tope) { $cfg.ahorro.tope_diario_tok = [long]$Tope; $cambio = $true }
 if ($null -ne $AvisoPct) { $cfg.ahorro.aviso_pct = [int]$AvisoPct; $cambio = $true }
@@ -94,7 +96,7 @@ if ($mensajeFinal) { Write-Output $mensajeFinal }
 if ($Ver -or -not $cambio) {
     if ($estabaCorrupta) { "ATENCION: config.json CORRUPTA (se usan valores por defecto). Reparar: config.ps1 -Recuperar" }
     "Plugin: {0}" -f $(if ($cfg.activo -eq $false) { 'APAGADO (no delega nada)' } else { 'ENCENDIDO' })
-    "Modo: {0}   Calidad (modo automático): {1}" -f $cfg.modo, $cfg.calidad
+    "Modo: {0}   Calidad (modo automático): {1}   Política de calidad: {2}" -f $cfg.modo, $cfg.calidad, $(if ($cfg.calidad_politica -eq 'normal') { 'normal' } else { 'MÁXIMA' })
     "Cuentas delegadas ({0} activas de máximo {1}):" -f @(Get-CuentasActivas $cfg).Count, $script:MaxCuentas
     foreach ($c in $cfg.cuentas) { "  {0,-10} {1,-6} {2,-8} {3}{4}" -f $c.id, $c.tipo, $(if ($c.activa) { 'ACTIVA' } else { 'inactiva' }), $c.etiqueta, $(if ($c.home) { "  (home: $($c.home))" } else { '' }) }
     "Elecciones manuales (se aplican SOLO en modo manual):"

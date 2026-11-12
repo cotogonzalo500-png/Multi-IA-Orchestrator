@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory)][string]$Prompt,
     [string]$Carpeta = (Get-Location).Path,
     [switch]$Escribir,    # sin esto, Codex solo puede leer
+    [switch]$Red,         # 3.2.0: red SOLO si se pide (workspace-write la bloquea por defecto: es intencional). Requiere -Escribir/-Aislar
     [switch]$ConMemoria,  # antepone la memoria compartida (MEMORIA.md) al pedido
     [switch]$Aislar,      # trabaja en una COPIA de -Carpeta (el original no se toca) y lista los cambios: delegar IMPLEMENTACION sin riesgo para el original
     [string]$Cuenta = 'codex',   # id de la cuenta de Codex (config.ps1 -Ver); con varias cuentas activas se elige una
@@ -47,6 +48,23 @@ if (-not $estado -or $estado.codigo -ne 0 -or (($estado.salida + $estado.error) 
 }
 
 $sandbox = if ($Escribir) { 'workspace-write' } else { 'read-only' }
+# 3.2.0 PREFLIGHT de escritura (causa raiz del bloqueo: delegar.ps1 nunca pasaba -Escribir => Codex quedaba en read-only sin avisar).
+$Carpeta = (Resolve-Path -LiteralPath $Carpeta -ErrorAction SilentlyContinue).Path
+if (-not $Carpeta -or -not (Test-Path -LiteralPath $Carpeta -PathType Container)) { $env:CODEX_HOME = $homeViejo; Write-Error 'La carpeta de trabajo (-Carpeta) no existe.'; exit 1 }
+if ($Red -and -not $Escribir -and -not $Aislar) { $env:CODEX_HOME = $homeViejo; Write-Error '-Red solo se combina con -Escribir/-Aislar.'; exit 1 }
+if ($Escribir -and -not $Aislar) {
+    $c0 = $Carpeta.TrimEnd('\')
+    $prohibida = ($c0 -match '^[A-Za-z]:$') -or ($c0 -ieq $env:USERPROFILE.TrimEnd('\')) -or ($c0 -like ($env:TEMP.TrimEnd('\') + '*')) -or ($c0 -ieq $env:windir) -or ($c0 -like ($env:windir + '\*')) -or ($c0 -like ($env:ProgramFiles + '*'))
+    if ($prohibida) { $env:CODEX_HOME = $homeViejo; $msg = "Escritura NO permitida en '$c0' (raiz de disco, perfil, TEMP, Windows o Program Files): usa una carpeta de proyecto."; Set-CausaActual -Texto $msg -Salida 1; Write-Error $msg; exit 1 }
+    $sonda = Join-Path $c0 ('.mia-sonda-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    try { [IO.File]::WriteAllText($sonda, 'x'); Remove-Item -LiteralPath $sonda -Force } catch { $env:CODEX_HOME = $homeViejo; $msg = "La carpeta '$c0' no es escribible por el usuario ($($_.Exception.Message)): Codex no podria editar."; Set-CausaActual -Texto $msg -Salida 1; Write-Error $msg; exit 1 }
+}
+function Get-Instantanea([string]$dir) {
+    $h = @{}; $n = 0
+    foreach ($f in (Get-ChildItem -LiteralPath $dir -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|__pycache__|\.venv|_delegado|bin|obj|TestResults)(\\|$)' })) { if (++$n -gt 20000) { return $null }; $h[$f.FullName.Substring($dir.Length).TrimStart('\')] = "$($f.Length)|$($f.LastWriteTimeUtc.Ticks)" }
+    $h
+}
+$antes = if ($sandbox -eq 'workspace-write' -and -not $Aislar) { Get-Instantanea $Carpeta } else { $null }
 $sw = [Diagnostics.Stopwatch]::StartNew()
 # --json: eventos por linea (respuesta + tokens). PowerShell 5.1 pierde las comillas dobles al pasar args a un .exe: se escapan a mano.
 # `--` evita que un prompt con "-" parezca opción.
@@ -67,12 +85,19 @@ if ($Aislar) {
 }
 # Sin --ephemeral (1.7.0): Codex guarda su sesion LOCAL (en tu PC, como cualquier uso de la app) y de ahi se lee el modelo realmente usado (ver Get-ModeloCodex).
 $a = @('exec', '--json', '--skip-git-repo-check', '--sandbox', $sandbox, '-C', $Carpeta)
+if ($Red -and $sandbox -eq 'workspace-write') { $a += @('-c', 'sandbox_workspace_write.network_access=true') }   # opt-in: red solo cuando se pide
+Write-Output ("[codex: sandbox $sandbox · red $(if ($Red) { 'HABILITADA (pedida)' } else { 'bloqueada' }) · carpeta $Carpeta]")
 if ($Modelo) { $a += @('-m', $Modelo) }
 if ($Esfuerzo) { $a += @('-c', "model_reasoning_effort=$Esfuerzo") }
 $errArch = Join-Path $env:TEMP ('codex-err-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.txt')
 # v1.9.1: timeout duro de proceso (30 min por defecto; MULTIIA_CODEX_TIMEOUT_MIN lo cambia). Al vencer se mata el arbol completo (sin huerfanos).
 $minTope = if ($env:MULTIIA_CODEX_TIMEOUT_MIN -match '^\d+$' -and [int]$env:MULTIIA_CODEX_TIMEOUT_MIN -gt 0) { [int]$env:MULTIIA_CODEX_TIMEOUT_MIN } else { 30 }
-$res = Invoke-ConTimeout $codex ($a + @('--', $Prompt)) ($minTope * 60) -Duro
+$candado = $null
+if ($Escribir -and -not $origenAislado) {   # 3.3.0: una sola IA escribe a la vez en la misma carpeta (Codex y agy comparten candado)
+    $candado = Lock-Carpeta $Carpeta.TrimEnd('\') 'codex'
+    if (-not $candado.ok) { $env:CODEX_HOME = $homeViejo; $m = "La carpeta '$Carpeta' esta siendo modificada por $($candado.dueno): espera o usa -Aislar."; Set-CausaActual -Texto $m -Salida 6; Write-Error $m; exit 6 }
+}
+try { $res = Invoke-ConTimeout $codex ($a + @('--', $Prompt)) ($minTope * 60) -Duro } finally { if ($candado -and $candado.ok) { Unlock-Carpeta $Carpeta.TrimEnd('\') } }
 $lineas = @($res.salida -split "\r?\n" | Where-Object { $_ -ne '' })
 $salida = [int]$res.codigo
 if ($res.error) { [IO.File]::WriteAllText($errArch, $res.error, (New-Object Text.UTF8Encoding($false))) }
@@ -93,6 +118,18 @@ foreach ($l in $lineas) {
     elseif ($e.type -in @('error', 'turn.failed')) { $errores += @($e.message, $e.error.message | Where-Object { $_ }) }
 }
 if ($texto) { $texto -join "`n" }
+# 3.2.0: registro de archivos modificados + deteccion de tarea incompleta (Codex dice que quedo en solo lectura)
+if ($null -ne $antes) {
+    $despues = Get-Instantanea $Carpeta; $mod = @()
+    if ($null -ne $despues) {
+        foreach ($k in $despues.Keys) { if (-not $antes.ContainsKey($k)) { $mod += "NUEVO: $k" } elseif ($antes[$k] -ne $despues[$k]) { $mod += "MODIFICADO: $k" } }
+        foreach ($k in $antes.Keys) { if (-not $despues.ContainsKey($k)) { $mod += "BORRADO: $k" } }
+    }
+    $global:MIA_Cambios = $null   # 3.3.0: tambien Codex registra el evento "cambios" (lo emite delegar.ps1)
+    if ($mod) { $global:MIA_Cambios = [ordered]@{ creados = @($mod | Where-Object { $_ -like 'NUEVO:*' }); modificados = @($mod | Where-Object { $_ -like 'MODIFICADO:*' }); borrados = @($mod | Where-Object { $_ -like 'BORRADO:*' }); carpeta = [string]$Carpeta; checkpoint = $null } }
+    Write-Output $(if ($mod) { "[codex: archivos cambiados ($($mod.Count)) en ${Carpeta}:`n" + (($mod | Sort-Object) -join "`n") + ']' } else { '[codex: no cambio ningun archivo]' })
+    if (-not $mod -and ($texto -join ' ') -match '(?i)solo lectura|read-?only|no pude (modificar|crear|escribir)|sin permisos? de escritura') { Set-CausaActual -Texto 'Codex informa que no pudo escribir (solo lectura) y no hubo cambios' -Salida 6; Write-Error 'Tarea INCOMPLETA: Codex no pudo escribir y no cambio archivos.'; $salida = 6 }
+}
 if ($origenAislado) {
     # Cambios de la copia respecto del original, para que Claude los revise (y recien ahi, con OK, los aplique).
     $camb = @(); $enCopia = @{}

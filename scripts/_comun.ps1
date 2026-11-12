@@ -108,7 +108,7 @@ $script:MaxCuentas = 3
 
 function Get-ConfigPorDefecto {
     [pscustomobject]@{
-        version = 1; activo = $true; modo = 'automatico'; calidad = 'equilibrada'; intensidad = 'automatico'; intensidad_chats = [pscustomobject]@{}
+        version = 1; activo = $true; modo = 'automatico'; calidad = 'equilibrada'; calidad_politica = 'maxima'; intensidad = 'automatico'; intensidad_chats = [pscustomobject]@{}
         cuentas = @(
             [pscustomobject]@{ id = 'codex'; tipo = 'codex'; etiqueta = 'ChatGPT Plus'; activa = $true; home = $null }
             [pscustomobject]@{ id = 'agy'; tipo = 'agy'; etiqueta = 'Google · Antigravity'; activa = $true; home = $null }
@@ -263,6 +263,7 @@ function Get-Config {
     if ($null -eq $c.activo) { $c | Add-Member -NotePropertyName activo -NotePropertyValue $true -Force }
     if ($c.modo -notin @('automatico', 'manual')) { $c | Add-Member -NotePropertyName modo -NotePropertyValue 'automatico' -Force }
     if ($c.calidad -notin @('auto', 'economica', 'equilibrada', 'maxima')) { $c | Add-Member -NotePropertyName calidad -NotePropertyValue 'equilibrada' -Force }
+    if ($c.calidad_politica -notin @('maxima', 'normal')) { $c | Add-Member -NotePropertyName calidad_politica -NotePropertyValue 'maxima' -Force }   # 3.3.0: Calidad Maxima por defecto (configs viejas la heredan)
     if ($c.intensidad -notin $script:IntensidadesValidas) { $c | Add-Member -NotePropertyName intensidad -NotePropertyValue 'automatico' -Force }   # 2.0: configs anteriores heredan Automatico
     if ($null -eq $c.intensidad_chats -or $c.intensidad_chats.GetType().Name -ne 'PSCustomObject') { $c | Add-Member -NotePropertyName intensidad_chats -NotePropertyValue ([pscustomobject]@{}) -Force }
     if (-not $c.cuentas) { $c | Add-Member -NotePropertyName cuentas -NotePropertyValue $d.cuentas -Force }
@@ -533,8 +534,14 @@ function Get-Motores {
     $agyExe = Find-AgyExe
     $ctC = @(Get-CuentasActivas $cfg 'codex'); $ctA = @(Get-CuentasActivas $cfg 'agy')
     $manual = $cfg.modo -eq 'manual'
-    $pedC = if ($manual -and $cfg.manual.codex.modelo) { [string]$cfg.manual.codex.modelo } else { 'segun la tarea (auto)' }
-    $pedA = if ($manual -and $cfg.manual.agy.modelo) { [string]$cfg.manual.agy.modelo } else { 'segun la tarea (auto)' }
+    # 3.3.0: en Calidad Maxima el modelo pedido es el mejor DESCUBIERTO (Get-MejorCodex / Get-MejorAgy, con cache); en manual, el elegido; si no, segun la tarea.
+    $pol = Get-PoliticaCalidad
+    $mejC = $null; $mejA = $null
+    if (-not $manual -and $pol -eq 'maxima') { try { if ($codexExe) { $mejC = Get-MejorCodex } } catch { }; try { if ($agyExe) { $mejA = Get-MejorAgy } } catch { } }
+    $pedC = if ($manual -and $cfg.manual.codex.modelo) { [string]$cfg.manual.codex.modelo } elseif ($mejC) { [string]$mejC.modelo } else { 'segun la tarea (auto)' }
+    $pedA = if ($manual -and $cfg.manual.agy.modelo) { [string]$cfg.manual.agy.modelo } elseif ($mejA) { [string]$mejA.modelo } else { 'segun la tarea (auto)' }
+    $efC = if ($manual -and $cfg.manual.codex.esfuerzo) { [string]$cfg.manual.codex.esfuerzo } elseif ($mejC) { [string]$mejC.esfuerzo } else { '' }
+    $efA = if ($mejA) { [string]$mejA.esfuerzo } else { '' }
     $mv = if ($snap -and $snap.modelo) { [string]$snap.modelo } else { $null }
     # Ultimo modelo CONFIRMADO por motor segun uso.jsonl (solo filas reales con registro local del ejecutor).
     $uu = @(Get-Uso | Where-Object { $_.modelo_confirmado })
@@ -543,11 +550,11 @@ function Get-Motores {
     $mcx = if ($ucx) { [string]$ucx.modelo_confirmado } else { $null }; $mag = if ($uag) { [string]$uag.modelo_confirmado } else { $null }
     @(
         [ordered]@{ id = 'claude'; nombre = 'Claude'; proveedor = 'Anthropic'; disponible = [bool]$snap; estado = $(if ($snap) { 'sesion con foto de cupo (' + $snap.tomado + ')' } else { 'sin foto de la sesion' })
-            cuentas = 0; modelo_pedido = $null; modelo_verificado = $mv; modelo = $(if ($mv) { $mv } else { 'Modelo no verificable' }); fuente = $(if ($mv) { 'get_session (la sesion lo informa)' } else { '' }); roles = 'coordinar, integrar, revisar' }
+            cuentas = 0; politica = $pol; solo_lectura = $true; esfuerzo_pedido = ''; esfuerzo_efectivo = 'no verificable'; modelo_pedido = $null; modelo_verificado = $mv; modelo = $(if ($mv) { $mv } else { 'Modelo no verificable' }); fuente = $(if ($mv) { 'get_session (la sesion lo informa)' } else { '' }); roles = 'coordinar, integrar, revisar' }
         [ordered]@{ id = 'codex'; nombre = 'Codex'; proveedor = 'OpenAI'; disponible = ([bool]$codexExe -and $ctC.Count -gt 0); estado = $(if (-not $codexExe) { 'no se encontro codex.exe' } elseif (-not $ctC.Count) { 'sin cuenta activa' } else { 'instalado, ' + $ctC.Count + ' cuenta(s) activa(s); la sesion se valida al delegar' })
-            cuentas = $ctC.Count; modelo_pedido = $pedC; modelo_verificado = $mcx; modelo = $(if ($mcx) { $mcx } else { 'Modelo no verificable' }); fuente = $(if ($mcx) { [string]$ucx.modelo_fuente + ' · ultima ejecucion ' + $ucx.fecha } else { 'la CLI no informa el modelo; aun no hay sesion local para leerlo' }); roles = 'codigo, revision' }
+            cuentas = $ctC.Count; politica = $pol; solo_lectura = $false; esfuerzo_pedido = $efC; esfuerzo_efectivo = 'no verificable'; modelo_pedido = $pedC; modelo_verificado = $mcx; modelo = $(if ($mcx) { $mcx } else { 'Modelo no verificable' }); fuente = $(if ($mcx) { [string]$ucx.modelo_fuente + ' · ultima ejecucion ' + $ucx.fecha } else { 'la CLI no informa el modelo; aun no hay sesion local para leerlo' }); roles = 'codigo, revision' }
         [ordered]@{ id = 'agy'; nombre = 'Antigravity'; proveedor = 'Google'; disponible = ([bool]$agyExe -and $ctA.Count -gt 0); estado = $(if (-not $agyExe) { 'no se encontro agy' } elseif (-not $ctA.Count) { 'sin cuenta activa' } else { 'instalado, ' + $ctA.Count + ' cuenta(s) activa(s); la sesion se valida al delegar' })
-            cuentas = $ctA.Count; modelo_pedido = $pedA; modelo_verificado = $mag; modelo = $(if ($mag) { $mag + ' (observado)' } else { 'Modelo no verificable' }); fuente = $(if ($mag) { [string]$uag.modelo_fuente + ' · ultima ejecucion ' + $uag.fecha } else { 'la CLI no informa el modelo (el slug se pasa con --model); aun no hay transcript local' }); roles = 'texto, analisis, segunda opinion' }
+            cuentas = $ctA.Count; politica = $pol; solo_lectura = $false; esfuerzo_pedido = $efA; esfuerzo_efectivo = 'no verificable'; modelo_pedido = $pedA; modelo_verificado = $mag; modelo = $(if ($mag) { $mag + ' (observado)' } else { 'Modelo no verificable' }); fuente = $(if ($mag) { [string]$uag.modelo_fuente + ' · ultima ejecucion ' + $uag.fecha } else { 'la CLI no informa el modelo (el slug se pasa con --model); aun no hay transcript local' }); roles = 'texto, analisis, segunda opinion' }
     )
 }
 
@@ -780,6 +787,118 @@ function Get-CatalogoAgy {
     $r = Invoke-ConTimeout $agy @('models') 45
     if (-not $r) { return @() }
     @($r.salida -split "`r?`n" | Where-Object { $_ -match "`t" } | ForEach-Object { $c = $_ -split "`t"; [pscustomobject]@{ slug = $c[0].Trim(); nombre = $c[1].Trim() } })
+}
+
+# ---- 3.3.0 AISLAMIENTO DE ESCRITURA: una sola IA escribe a la vez en una misma carpeta (Codex y agy no se pisan). Candado por carpeta; se libera solo si el dueño murio o pasaron 3 h.
+function Get-RutaCandado([string]$Carpeta) {
+    $d = Join-Path $script:DatosDir 'candados'; New-Item -ItemType Directory -Force $d | Out-Null
+    $h = [BitConverter]::ToString([Security.Cryptography.SHA1]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($Carpeta.TrimEnd('\').ToLowerInvariant()))).Replace('-', '').Substring(0, 16)
+    Join-Path $d "$h.lock"
+}
+function Lock-Carpeta {
+    param([string]$Carpeta, [string]$Motor)
+    $f = Get-RutaCandado $Carpeta
+    for ($i = 0; $i -lt 2; $i++) {
+        try {
+            $fs = [IO.File]::Open($f, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            $b = [Text.Encoding]::UTF8.GetBytes((@{ motor = $Motor; pid = $PID; desde = (Get-Date).ToString('s'); carpeta = $Carpeta } | ConvertTo-Json -Compress)); $fs.Write($b, 0, $b.Length); $fs.Close()
+            return [pscustomobject]@{ ok = $true; archivo = $f; dueno = '' }
+        } catch {
+            $o = try { Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $null }
+            $vivo = $o -and (Get-Process -Id ([int]$o.pid) -ErrorAction SilentlyContinue)
+            $viejo = $o -and ((Get-Date) - [datetime]$o.desde).TotalHours -gt 3
+            if ($i -eq 0 -and ($null -eq $o -or -not $vivo -or $viejo)) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue; continue }
+            return [pscustomobject]@{ ok = $false; archivo = $f; dueno = $(if ($o) { "$($o.motor) (desde $($o.desde))" } else { 'otro proceso' }) }
+        }
+    }
+}
+function Unlock-Carpeta([string]$Carpeta) { Remove-Item -LiteralPath (Get-RutaCandado $Carpeta) -Force -ErrorAction SilentlyContinue }
+function Test-CarpetaEscribible {
+    # Mismas reglas que Codex: nada de raiz de disco, perfil, TEMP, Windows o Program Files. Devuelve $null si esta bien, o el motivo.
+    param([string]$Carpeta)
+    $c0 = $Carpeta.TrimEnd('\')
+    if (($c0 -match '^[A-Za-z]:$') -or ($c0 -ieq $env:USERPROFILE.TrimEnd('\')) -or ($c0 -like ($env:TEMP.TrimEnd('\') + '*')) -or ($c0 -ieq $env:windir) -or ($c0 -like ($env:windir + '\*')) -or ($c0 -like ($env:ProgramFiles + '*')) -or ($c0 -like ($env:USERPROFILE.TrimEnd('\') + '\.claude*')) -or ($c0 -like ($env:USERPROFILE.TrimEnd('\') + '\.codex*'))) { return "Escritura NO permitida en '$c0' (raiz de disco, perfil, TEMP, Windows, Program Files o carpetas de configuracion de IAs): usa una carpeta de proyecto." }
+    $sonda = Join-Path $c0 ('.mia-sonda-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    try { [IO.File]::WriteAllText($sonda, 'x'); Remove-Item -LiteralPath $sonda -Force } catch { return "La carpeta '$c0' no es escribible por el usuario ($($_.Exception.Message))." }
+    $null
+}
+function Get-InstantaneaCarpeta {
+    param([string]$Dir)
+    $h = @{}; $n = 0
+    foreach ($f in (Get-ChildItem -LiteralPath $Dir -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch '\\(\.git|node_modules|__pycache__|\.venv|_delegado|bin|obj|TestResults)(\\|$)' })) { if (++$n -gt 20000) { return $null }; $h[$f.FullName.Substring($Dir.Length).TrimStart('\')] = "$($f.Length)|$($f.LastWriteTimeUtc.Ticks)" }
+    $h
+}
+# Checkpoint: copia de la carpeta (sin secretos ni carpetas pesadas) en <datos>\_checkpoint\<id>, para poder volver atras. Devuelve la ruta o $null si no se pudo (muy grande).
+function New-Checkpoint {
+    param([string]$Carpeta, [string]$Id)
+    $origen = $Carpeta.TrimEnd('\')
+    $excluir = @('.git', 'node_modules', '__pycache__', '.venv', '_delegado', 'bin', 'obj')
+    $nombreSecreto = '(?i)^(\.env.*|.*\.(pem|key|pfx|p12|kdbx)|id_rsa.*|.*credential.*|.*secret.*|.*password.*|.*cookie.*|auth\.json|.*token.*|\.netrc|\.npmrc)$'
+    $arch = @(Get-ChildItem -LiteralPath $origen -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch $nombreSecreto } | Where-Object { $rel = $_.FullName.Substring($origen.Length + 1); -not ($excluir | Where-Object { $rel -like "$_\*" -or $rel -like "*\$_\*" }) })
+    if ($arch.Count -gt 5000 -or (($arch | Measure-Object Length -Sum).Sum / 1MB) -gt 100) { return $null }
+    $dest = Join-Path $script:DatosDir ('_checkpoint\' + $Id)
+    foreach ($f in $arch) { $d = Join-Path $dest $f.FullName.Substring($origen.Length + 1); New-Item -ItemType Directory -Force (Split-Path $d) | Out-Null; Copy-Item -LiteralPath $f.FullName -Destination $d }
+    New-Item -ItemType Directory -Force $dest | Out-Null
+    $dest
+}
+
+# ---- 3.3.0 CALIDAD MAXIMA: descubrimiento dinamico del mejor modelo de cada motor (sin listas rigidas), con cache.
+# Politica de calidad: 'maxima' (defecto) | 'normal'. Independiente de la intensidad de delegacion. Nunca toca el modelo de Claude.
+function Get-PoliticaCalidad {
+    if ($env:MULTIIA_POLITICA -in 'maxima', 'normal') { return $env:MULTIIA_POLITICA }   # solo pruebas/diagnostico: fuerza la politica sin tocar la config
+    $c = Get-Config
+    if ($c.calidad_politica -in 'maxima', 'normal') { return [string]$c.calidad_politica }
+    'maxima'
+}
+$script:EsfuerzoOrden = @('minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
+function Get-CacheModelos {
+    param([string]$Motor, [scriptblock]$Descubrir, [int]$TtlMin = 360)
+    $f = Join-Path $script:DatosDir "modelos-$Motor.json"
+    if (Test-Path -LiteralPath $f) {
+        try {
+            $o = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json
+            if (((Get-Date) - [datetime]$o.tomado).TotalMinutes -lt $TtlMin -and @($o.lista).Count -gt 0) { return @($o.lista) }
+        } catch { }
+    }
+    $lista = @(& $Descubrir)
+    if ($lista.Count -gt 0) { try { [pscustomobject]@{ tomado = (Get-Date).ToString('s'); lista = $lista } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $f -Encoding UTF8 } catch { } }
+    $lista
+}
+# Mejor modelo de Codex realmente disponible: menor 'priority' entre los visibles; esfuerzo maximo que ese modelo soporta.
+function Get-MejorCodex {
+    $lista = Get-CacheModelos 'codex' {
+        $cx = Find-CodexExe; if (-not $cx) { return }
+        $r = Invoke-ConTimeout $cx @('debug', 'models') 30; if (-not $r) { return }
+        $o = try { $r.salida | ConvertFrom-Json } catch { $null }
+        $l = if ($o.models) { $o.models } else { $o }
+        @($l | ForEach-Object { [pscustomobject]@{ slug = $_.slug; prioridad = $(if ($null -ne $_.priority) { [int]$_.priority } else { 999 }); visible = ([string]$_.visibility -in '', 'list'); esfuerzos = @($_.supported_reasoning_levels | ForEach-Object { $_.effort }) } })
+    }
+    $vis = @($lista | Where-Object { $_.visible } | Sort-Object prioridad)
+    if (-not $vis) { $vis = @($lista | Sort-Object prioridad) }
+    if (-not $vis) { return $null }
+    $m = $vis[0]
+    $esf = @($m.esfuerzos | Sort-Object { $script:EsfuerzoOrden.IndexOf([string]$_) })[-1]
+    [pscustomobject]@{ modelo = $m.slug; esfuerzo = $esf; esfuerzos = @($m.esfuerzos); candidatos = @($vis | ForEach-Object { $_.slug }) }
+}
+# Mejor modelo de agy: por familia (potencia), luego proveedor (Gemini nativo primero), luego version, luego esfuerzo maximo (suele ser el sufijo del slug).
+function Get-MejorAgy {
+    $lista = Get-CacheModelos 'agy' { @(Get-CatalogoAgy) }
+    if (-not $lista) { return $null }
+    $punt = foreach ($m in $lista) {
+        $s = [string]$m.slug
+        $tier = if ($s -match 'argon|opus|ultra|pro') { 3 } elseif ($s -match 'sonnet') { 2 } elseif ($s -match 'flash|haiku') { 1 } else { 0 }
+        $prov = if ($s -match '^gemini') { 1 } else { 0 }
+        $ver = 0.0; if ($s -match '-(\d+(?:[.-]\d+)?)-') { $ver = [double]::Parse(($Matches[1] -replace '-', '.'), [Globalization.CultureInfo]::InvariantCulture) }
+        $ef = if ($s -match '-(low|medium|high|xhigh|max)$') { $script:EsfuerzoOrden.IndexOf($Matches[1]) } else { 0 }
+        [pscustomobject]@{ slug = $s; nombre = $m.nombre; tier = $tier; prov = $prov; ver = $ver; ef = $ef }
+    }
+    $orden = @($punt | Sort-Object @{e = 'tier'; Descending = $true }, @{e = 'prov'; Descending = $true }, @{e = 'ver'; Descending = $true }, @{e = 'ef'; Descending = $true })
+    $m = $orden[0]
+    # Segundo mejor de OTRA familia/proveedor: sirve de revisor cuando la revision cruzada aporta calidad real.
+    $otro = @($orden | Where-Object { ($_.slug -replace '-(low|medium|high|xhigh|max)$', '') -ne ($m.slug -replace '-(low|medium|high|xhigh|max)$', '') -and $_.tier -ge 2 })
+    $otro = @($otro | Where-Object { ($_.prov -ne $m.prov) })
+    $rev = if ($otro) { $otro[0].slug } else { $null }
+    [pscustomobject]@{ modelo = $m.slug; nombre = $m.nombre; esfuerzo = $(if ($m.slug -match '-(low|medium|high|xhigh|max)$') { $Matches[1] } else { '' }); revisor = $rev; candidatos = @($orden | ForEach-Object { $_.slug }) }
 }
 
 # "en 3 h 20 min" a partir de una hora de reinicio ISO (UTC); "ya reinició" si paso.

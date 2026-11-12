@@ -26,7 +26,7 @@ async function exportarHist($: any, formato: 'csv' | 'json', v: Vista) {
     await update($, vistaA, x => ({ ...x, exp: 'Falló la exportación: ' + String(err).slice(0, 100) }))
   }
 }
-type Motor = { id: string; nombre: string; disponible: boolean; estado: string; modelo: string; modelo_pedido?: string | null; modelo_verificado?: string | null; fuente?: string }
+type Motor = { id: string; nombre: string; disponible: boolean; estado: string; modelo: string; modelo_pedido?: string | null; modelo_verificado?: string | null; fuente?: string; politica?: string; solo_lectura?: boolean; esfuerzo_pedido?: string; esfuerzo_efectivo?: string }
 type Datos = {
   eventos?: Evento[]
   motores?: Motor[]
@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '3.1.0'
+const VERSION = '3.3.0'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -1002,17 +1002,18 @@ export const register: Register = on => {
     })()
 
     // ---------- consola estilo log
-    const icono = (t: string) => (t === 'inicio' ? '▶' : t === 'fin' ? '✔' : t === 'error' ? '✖' : '◌')
+    const icono = (t: string) => (t === 'inicio' ? '▶' : t === 'fin' ? '✔' : t === 'error' ? '✖' : t === 'cambios' ? '✎' : '◌')
     // frase clara de cada evento: a quién, qué pasó
     // categorías: directo / delegación / prueba (origen no real) / reintento recuperado / reinicio / error / fin; tipo desconocido muestra su nombre
     const prueba = (v: Evento) => (v.o && v.o !== 'real' ? '[PRUEBA ' + v.o + '] ' : '')
     const frase = (v: Evento) => prueba(v) + (v.t === 'sin-delegar'
       ? (v.d === 'claude' ? 'Claude lo resolvió solo (no delegó)' : v.d === 'pendiente' ? 'Quedó pendiente: nadie pudo tomarlo' : 'No se delegó')
       : v.t === 'reinicio' ? 'Reinicio del panel o de Claude'
+      : v.t === 'cambios' ? nombreIa(v.d) + ' modificó archivos'
       : v.t === 'inicio' || v.t === 'fin' || v.t === 'error'
         ? nombreIa(v.d) + ' ' + (v.t === 'inicio' ? 'está trabajando (delegado)' : v.t === 'fin' ? (/-r$/.test(v.i || '') ? 'terminó (recuperado tras una falla)' : 'terminó') : 'tuvo un problema')
         : 'Evento: ' + v.t)
-    const colorEv = (t: string) => (t === 'inicio' ? T.ambar : t === 'fin' ? T.okSuave : t === 'error' ? T.errorSuave : T.tenue)
+    const colorEv = (t: string) => (t === 'inicio' ? T.ambar : t === 'fin' ? T.okSuave : t === 'error' ? T.errorSuave : t === 'cambios' ? T.info : T.tenue)
     const nombreIa = (x: string) => (x === 'codex' ? 'Codex' : x === 'agy' ? 'Antigravity' : 'Claude')
     const tarea = (k: string) => (({ codigo: 'código', revision: 'revisión', texto: 'texto', trivial: 'tarea simple', razonar: 'razonamiento', opinion: 'segunda opinión', contenido: 'contenido', imagen: 'imagen o video' } as Record<string, string>)[k] ?? k)
     // hora de hoy como HH:MM; de otro día, DD/MM HH:MM (24 h para todo)
@@ -1038,9 +1039,19 @@ export const register: Register = on => {
         </Box>
         <Text size="caption" color={estado.c}>{'◉ Vigilando · último chequeo de cupos ' + (edadCupos < 0 ? 'pendiente' : 'hace ' + hace(edadCupos))}</Text>
         {(d.motores ?? []).length > 0 && (
-          <Text size="caption" dimColor>
-            {'Motores: ' + (d.motores ?? []).map(m => m.nombre + (m.disponible ? '' : ' (no disponible)') + ' · ' + (m.modelo_verificado ? m.modelo_verificado : 'Modelo no verificable')).join('  |  ')}
-          </Text>
+          <Box flexDirection="column">
+            <Text size="caption" dimColor>
+              {'Motores: ' + (d.motores ?? []).map(m => m.nombre + (m.disponible ? '' : ' (no disponible)') + ' · ' + (m.modelo_verificado ? m.modelo_verificado : 'Modelo no verificable')).join('  |  ')}
+            </Text>
+            {(d.motores ?? []).map(m => (
+              <Text key={'mot-' + m.id} size="caption" dimColor>
+                {'  ' + m.nombre + ': ' + (m.solo_lectura
+                  ? 'modelo efectivo (solo lectura, no se cambia desde acá)'
+                  : 'pedido ' + (m.modelo_pedido || 'según la tarea') + (m.esfuerzo_pedido ? ' / ' + m.esfuerzo_pedido : '') + ' · efectivo ' + (m.modelo_verificado ? m.modelo_verificado + ' (observado)' : 'no verificable') + ' · esfuerzo efectivo ' + (m.esfuerzo_efectivo || 'no verificable'))}
+              </Text>
+            ))}
+            {(d.motores ?? []).some(m => m.politica === 'maxima') && <Text size="caption" dimColor>Calidad: Máxima</Text>}
+          </Box>
         )}
         {activos.map(v => {
           // Estado REAL de la ejecución = el último evento con su ID: solicitud enviada → confirmado (señal de la CLI) → respuesta recibida.
@@ -1062,7 +1073,7 @@ export const register: Register = on => {
                 {horaEv(v.f) + '  ' + icono(v.t) + ' ' + frase(v) + (v.k ? ' · ' + tarea(v.k) : '')}
               </Text>
               {(v.x || v.tok > 0 || v.s > 0) && <Text size="caption" dimColor>{'     ' + [v.x, v.tok ? fmt(v.tok) + ' tokens' : '', v.s ? v.s + ' s' : ''].filter(Boolean).join(' · ')}</Text>}
-              {v.m && v.t !== 'fin' && <Text size="caption" dimColor>{(v.t === 'sin-delegar' ? '     Por qué no: ' : '     Por qué: ') + v.m}</Text>}
+              {v.m && v.t !== 'fin' && <Text size="caption" dimColor>{(v.t === 'cambios' ? '     Carpeta: ' : v.t === 'sin-delegar' ? '     Por qué no: ' : '     Por qué: ') + v.m}</Text>}
             </Box>
           )
         })}
@@ -1127,14 +1138,14 @@ export const register: Register = on => {
         )}
         {ctrlOn && manual && opciones(
           'Codex · esfuerzo',
-          [['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['xhigh', 'xhigh']],
+          [['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['xhigh', 'xhigh'], ['max', 'max'], ['ultra', 'ultra']],
           d.manual?.codex.esfuerzo,
           v => ['-Manual', 'codex.esfuerzo=' + v],
           (dd, v) => ({ ...dd, manual: { ...man(dd), codex: { ...man(dd).codex, esfuerzo: v } } }),
         )}
         {ctrlOn && manual && opciones(
           'Codex · modelo',
-          [['gpt-6-luna', 'luna'], ['gpt-6.1-sol', 'sol'], ['gpt-6-astra', 'astra']],
+          [['gpt-6-luna', 'luna'], ['gpt-6.1-sol', 'sol (Máxima)'], ['gpt-6-astra', 'astra']],
           d.manual?.codex.modelo,
           v => ['-Manual', 'codex.modelo=' + v],
           (dd, v) => ({ ...dd, manual: { ...man(dd), codex: { ...man(dd).codex, modelo: v } } }),
@@ -1385,6 +1396,7 @@ export const register: Register = on => {
       const k = v.i ? idxE.get(v.i) : undefined
       if (k !== undefined) {
         const e = ejecs[k]
+        if (v.t === 'cambios') { e.fin = v.f; continue }   // 3.3.0: "cambios" llega despues de fin/error con el mismo ID: no debe pisar el estado terminal ni el modelo pedido
         e.t = v.t; e.fin = v.f; e.d = e.d || v.d; e.x = v.x || e.x; e.m = v.m || e.m; e.k = v.k || e.k; e.tok = v.tok || e.tok; e.s = v.s || e.s; e.c = v.c || e.c; e.o = v.o || e.o
       } else {
         if (v.i) idxE.set(v.i, ejecs.length)

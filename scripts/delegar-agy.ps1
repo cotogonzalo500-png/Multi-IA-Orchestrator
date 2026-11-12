@@ -14,7 +14,10 @@ param(
     [string]$Cuenta = 'agy',   # id de la cuenta de Antigravity (hoy solo una; config.ps1 -Ver)
     [string]$Modelo,      # slug completo (ver `agy models`); si se da, pisa al perfil y al esfuerzo
     [string]$Espera = '5m',
-    [switch]$ConMemoria   # antepone la memoria compartida (MEMORIA.md) al pedido
+    [switch]$ConMemoria,   # antepone la memoria compartida (MEMORIA.md) al pedido
+    [switch]$Escribir,     # 3.3.0: agy PROGRAMA de verdad: crea/edita archivos SOLO dentro de -Carpeta (--add-dir + --mode accept-edits; nunca --dangerously-skip-permissions)
+    [string]$Carpeta,      # carpeta de trabajo autorizada (obligatoria con -Escribir)
+    [string]$Verificar     # comando EXACTO de prueba que agy puede correr (allow-list command(<exacto>)); sin esto no corre comandos
 )
 . (Join-Path $PSScriptRoot '_comun.ps1')
 # PRUEBAS: MULTIIA_SIMULAR_FALLA=agy simula que Antigravity no esta disponible (falla controlada, no toca la CLI real).
@@ -60,6 +63,7 @@ if ($Archivo) {
     # v2.2.0: causa demostrada de los fallos con entradas grandes: pasado el umbral el prompt iba a un archivo temporal y agy (modo request-review) intentaba
     # leerlo con RunCommand, que se deniega -> respuesta vacia. Ahora el material se FRAGMENTA por lineas (cada parte entra inline) conservando nombre y numeros de linea.
     $maxParte = 14000
+    if ($Escribir -and ($Prompt.Length + ($bloques -join "`n`n").Length) -gt 18000 -and -not $env:MULTIIA_AGY_PARTE) { Write-Error 'Con -Escribir el material no se fragmenta (las partes saldrian sin permiso de escritura y devolverian un falso exito): reduci -Archivo o deja que agy lea la carpeta autorizada.'; exit 1 }   # 3.3.0 (auditoria cruzada)
     if (($Prompt.Length + ($bloques -join "`n`n").Length) -gt 18000 -and -not $env:MULTIIA_AGY_PARTE) {
         $partes = @()
         # 2.3.1 (auditoria Codex #3): se fragmenta el MISMO contenido ya revisado (antes se releia el archivo: si cambiaba en el medio salia sin revisar).
@@ -99,15 +103,44 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 # con --add-dir y agy (request-review) no podia leerlo -> respuesta vacia. Ahora se RECHAZA claro, antes de gastar cupo: el material grande va por -Archivo (se fragmenta).
 $tmpDir = $null; $charsPrompt = $Prompt.Length; $extraDir = @()
 if ($Prompt.Length -gt 28000) { Write-Error "El pedido tiene $($Prompt.Length) caracteres (maximo 28000 por la linea de comandos de Windows). Pasa el material con -Archivo (se fragmenta solo) o recortalo."; exit 1 }
-$global:MIA_Conf = $null; $global:MIA_Modelo = $null; $global:MIA_Causa = $null; $global:MIA_Timeout = $false   # auditoria 1.8.0 (A-06): no arrastrar la senal/modelo de una corrida anterior del mismo proceso
+$global:MIA_Conf = $null; $global:MIA_Modelo = $null; $global:MIA_Causa = $null; $global:MIA_Timeout = $false; $global:MIA_Cambios = $null; $global:MIA_Checkpoint = $null   # auditoria 1.8.0 (A-06): no arrastrar la senal/modelo de una corrida anterior del mismo proceso
 # v1.9.0: el stderr de agy se CAPTURA (antes se descartaba con 2>$null): ahi viene el bloque AGY_ERROR con la causa real (timeout, modelo invalido, etc.).
 $errArch = Join-Path $env:TEMP ('agy-err-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.txt')
+# ---- 3.3.0 ESCRITURA REAL: mismas protecciones que Codex (carpeta autorizada, candado, checkpoint, registro de cambios, verificacion)
+$antes = $null; $candado = $null; $cfgTmp = $null; $carpetaOk = $null; $vacioDenegado = $false
+if ($Verificar -and -not $Escribir) { Write-Error '-Verificar solo tiene sentido con -Escribir.'; exit 1 }
+if ($Escribir) {
+    if (-not $Carpeta) { Write-Error 'Escribir con agy exige -Carpeta (la carpeta autorizada).'; exit 1 }
+    $rc = Resolve-Path -LiteralPath $Carpeta -ErrorAction SilentlyContinue
+    if (-not $rc -or -not (Test-Path -LiteralPath $rc.Path -PathType Container)) { Write-Error "La carpeta '$Carpeta' no existe."; exit 1 }
+    $carpetaOk = $rc.ProviderPath.TrimEnd('\')
+    $motivo = Test-CarpetaEscribible $carpetaOk
+    if ($motivo) { Write-Error $motivo; exit 1 }
+    if ($Verificar -and (Test-Secreto $Verificar)) { Write-Error 'El comando de verificacion parece contener un secreto.'; exit 2 }
+    if ($Verificar -match '[;&|<>`\r\n]') { Write-Error 'El comando de verificacion debe ser UN solo comando simple (sin ; & | < > ni saltos de linea).'; exit 1 }
+    $candado = Lock-Carpeta $carpetaOk 'agy'
+    if (-not $candado.ok) { Write-Error "La carpeta '$carpetaOk' esta siendo modificada por $($candado.dueno): espera a que termine (Codex y agy no escriben a la vez en la misma carpeta)."; Set-CausaActual -Texto "carpeta ocupada por $($candado.dueno)" -Salida 6; exit 6 }
+    $antes = Get-InstantaneaCarpeta $carpetaOk
+    $global:MIA_Checkpoint = New-Checkpoint $carpetaOk ('agy-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + ([guid]::NewGuid().ToString('N').Substring(0, 6)))
+    $extraDir = @('--add-dir', $carpetaOk, '--mode', 'accept-edits')
+    if ($Verificar) {
+        $cfgTmp = Join-Path $env:TEMP ('agy-set-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+        [IO.File]::WriteAllText($cfgTmp, (@{ permissions = @{ allow = @("command($Verificar)") } } | ConvertTo-Json -Depth 4 -Compress), (New-Object Text.UTF8Encoding($false)))
+        $extraDir += @('--settings', $cfgTmp)
+    }
+}
 try {
     # v1.9.1: timeout DURO de proceso (--print-timeout + 90 s de gracia). Si agy se cuelga, se mata todo el arbol (sin huerfanos) y se clasifica como timeout.
     $segEspera = if ($Espera -match '^(\d+)\s*(s|m|h)?$') { [int]$Matches[1] * @{ s = 1; m = 60; h = 3600 }[$(if ($Matches[2]) { $Matches[2] } else { 's' })] } else { 300 }
     # 2.3.11: agy en modo -p no puede correr comandos (permiso denegado -> respuesta vacia, p.ej. "numeros del 1 al 400"). Se le pide siempre responder directo en texto.
-    $argsAgy = @('-p', ($Prompt + "`n`n(Responde directamente en texto; no uses herramientas ni comandos.)")) + $extraDir + @('--model', $Modelo, '--print-timeout', $Espera, '--output-format', 'json')
-    $res = Invoke-ConTimeout $agy $argsAgy ($segEspera + 90) -Duro
+    $cola = if ($Escribir) {
+        "`n`n(Carpeta de trabajo autorizada: $carpetaOk . Crea y edita archivos SOLO ahi, con ruta completa dentro de esa carpeta." + $(if ($Verificar) { " Despues de escribir, corre exactamente: $Verificar ; si falla, corregi y repeti." } else { ' No corras comandos.' }) + " Al terminar, resumi en pocas lineas que archivos tocaste y el resultado.)"
+    } else { "`n`n(Responde directamente en texto; no uses herramientas ni comandos.)" }
+    $argsAgy = @('-p', ($Prompt + $cola)) + $extraDir + @('--model', $Modelo, '--print-timeout', $Espera, '--output-format', 'json')
+    # 3.3.0: la allow-list command(...) de agy solo coincide si agy ARRANCA en la carpeta autorizada (reproducido: desde otro directorio el comando era denegado y la respuesta salia vacia).
+    $cwdPrev = [Environment]::CurrentDirectory
+    if ($Escribir) { [Environment]::CurrentDirectory = $carpetaOk }
+    try { $res = Invoke-ConTimeout $agy $argsAgy ($segEspera + 90) -Duro } finally { [Environment]::CurrentDirectory = $cwdPrev }
     if ($res.arranque -eq $false) { $msgA = "agy no arranca ($agy): $($res.error). Reinstalalo o corregi MULTIIA_AGY_EXE."; Set-CausaActual -Texto $msgA -Salida 126; Write-Error $msgA; exit 126 }
     $crudo = @($res.salida -split "\r?\n" | Where-Object { $_ -ne '' })
     $salida = [int]$res.codigo
@@ -117,6 +150,8 @@ try {
 } finally {
     # auditoria 1.8.0 (A-04): el temporal con el prompt se borra aunque se interrumpa (Ctrl+C / error)
     if ($tmpDir -and (Test-Path $tmpDir)) { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($cfgTmp -and (Test-Path -LiteralPath $cfgTmp)) { Remove-Item -LiteralPath $cfgTmp -Force -ErrorAction SilentlyContinue }
+    if ($candado -and $candado.ok) { Unlock-Carpeta $carpetaOk }   # el candado se libera siempre (tambien con timeout o Ctrl+C)
 }
 
 $errTxt = ''
@@ -130,7 +165,7 @@ if ($r) {
     if ($r.status -eq 'SUCCESS' -and -not "$($r.response)".Trim()) {
         # v1.8.0: SUCCESS con respuesta vacia (p.ej. agy intento usar una herramienta denegada) NO es exito: se marca falla para que delegar.ps1 recupere.
         $den = if ($r.denied_actions) { ' acciones denegadas: ' + ((@($r.denied_actions) | % { $_.display_name }) -join ',') } else { '' }
-        $msg = "agy devolvio una respuesta vacia (modelo: $Modelo).$den"; Write-Error $msg; $salida = 1; Set-CausaActual -Texto "$msg $errTxt" -Salida $salida
+        $msg = "agy devolvio una respuesta vacia (modelo: $Modelo).$den"; Write-Error $msg; $salida = 1; Set-CausaActual -Texto "$msg $errTxt" -Salida $salida; $vacioDenegado = [bool]$r.denied_actions
     }
     elseif ($r.status -eq 'SUCCESS' -and (Test-AgyTruncado $r)) {
         # v1.9.2: finished_reason estructurado indica corte por largo: NO es exito (el texto llegaria incompleto).
@@ -146,8 +181,37 @@ if ($r) {
     $msg = "agy no devolvió JSON: " + (($crudo | Select-Object -First 3) -join ' ')
     Write-Error (Hide-Secretos $msg); if ($salida -eq 0) { $salida = 1 }; Set-CausaActual -Texto "$errTxt $msg" -Salida $salida
 }
+if ($Escribir -and $antes) {
+    # Registro de cambios (lo que realmente cambio en disco, no lo que agy dice) + deteccion de tarea incompleta.
+    $desp = Get-InstantaneaCarpeta $carpetaOk
+    if ($desp) {
+        $nuevos = @($desp.Keys | Where-Object { -not $antes.ContainsKey($_) }); $borrados = @($antes.Keys | Where-Object { -not $desp.ContainsKey($_) })
+        $mod = @($desp.Keys | Where-Object { $antes.ContainsKey($_) -and $antes[$_] -ne $desp[$_] })
+        $global:MIA_Cambios = [ordered]@{ creados = $nuevos; modificados = $mod; borrados = $borrados; carpeta = $carpetaOk; checkpoint = $global:MIA_Checkpoint }
+        Write-Output ("[cambios de agy en {0}: {1} creados, {2} modificados, {3} borrados{4}]" -f $carpetaOk, $nuevos.Count, $mod.Count, $borrados.Count, $(if ($global:MIA_Checkpoint) { " · checkpoint: $global:MIA_Checkpoint" } else { ' · sin checkpoint (carpeta muy grande)' }))
+        foreach ($x in ($nuevos + $mod)) { Write-Output "  + $x" }; foreach ($x in $borrados) { Write-Output "  - $x (borrado)" }
+        if ($salida -eq 0 -and ($nuevos.Count + $mod.Count + $borrados.Count) -eq 0) { $m = 'agy termino sin tocar ningun archivo: la tarea de escritura NO se cumplio.'; Write-Error $m; $salida = 1; Set-CausaActual -Texto $m -Salida 1 }
+        if ($salida -eq 0 -and $r -and $r.denied_actions) { Write-Warning ('agy tuvo acciones DENEGADAS (verifica que quedo completo): ' + ((@($r.denied_actions) | % { $_.display_name }) -join ', ')) }
+        # VERIFICACION propia: no se confia en lo que agy dice. El orquestador corre el comando de pruebas (UN comando simple, ya validado) en la carpeta autorizada.
+        # Si agy escribio pero un comando suyo fue denegado (respuesta vacia) y las pruebas pasan, la tarea se da por cumplida CON aviso (no se reintenta con otro motor sobre cambios ya hechos).
+        if ($Verificar -and ($nuevos.Count + $mod.Count) -gt 0 -and $salida -in 0, 1 -and -not $global:MIA_Timeout) {
+            $partes = @($Verificar -split '\s+' | Where-Object { $_ })
+            $cwdAnt = [Environment]::CurrentDirectory
+            try {
+                [Environment]::CurrentDirectory = $carpetaOk
+                $v = Invoke-ConTimeout $partes[0] @($partes | Select-Object -Skip 1) 300 -Duro
+            } finally { [Environment]::CurrentDirectory = $cwdAnt }
+            $vok = ($v.arranque -ne $false) -and (-not $v.timeout) -and ([int]$v.codigo -eq 0)
+            $vtxt = (Hide-Secretos ((@($v.salida -split "\r?\n") + @($v.error -split "\r?\n")) | Where-Object { $_ } | Select-Object -Last 8) -join ' | ')
+            Write-Output ("[verificacion propia: {0} · {1}]" -f $(if ($vok) { 'OK' } else { "FALLO (codigo $($v.codigo))" }), $Verificar)
+            if ($vtxt) { Write-Output "  $vtxt" }
+            if (-not $vok -and $salida -eq 0) { $m = "las pruebas ($Verificar) FALLARON tras la escritura de agy."; Write-Error $m; $salida = 1; Set-CausaActual -Texto $m -Salida 1 }
+            elseif ($vok -and $salida -eq 1 -and $vacioDenegado) { Write-Warning 'agy no devolvio texto (un comando suyo fue denegado) pero escribio y las pruebas propias pasan: se da por cumplida.'; $salida = 0; $global:MIA_Causa = $null }
+        }
+    }
+}
 $convId = if ($r -and $r.conversation_id) { [string]$r.conversation_id } else { '' }
-$ma = Get-ModeloAgy -ConversationId $convId
+$ma =Get-ModeloAgy -ConversationId $convId
 $global:MIA_Modelo = [ordered]@{ confirmado = $(if ($ma) { $ma.modelo } else { '' }); fuente = $(if ($ma) { $ma.fuente } else { '' }); ejecutor_id = $convId }
 Add-Uso -Destino 'agy' -Modelo $Modelo -Esfuerzo '' -Chars $charsPrompt -Segundos $sw.Elapsed.TotalSeconds -Salida $salida -ConMemoria ([bool]$ConMemoria) -TokIn $tokIn -TokOut $tokOut -Modo $cfg.modo -Cuenta $Cuenta -ModeloConf $global:MIA_Modelo.confirmado -ModeloFuente $global:MIA_Modelo.fuente
 exit $salida

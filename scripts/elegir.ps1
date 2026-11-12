@@ -18,6 +18,9 @@ param(
 . (Join-Path $PSScriptRoot '_comun.ps1')
 $cfg = Get-Config
 if ($Critico) { $Calidad = 'maxima' } elseif (-not $Calidad) { $Calidad = if ($cfg.calidad -in 'economica', 'equilibrada', 'maxima') { $cfg.calidad } else { 'equilibrada' } }
+# 3.3.0: POLITICA "Calidad Maxima" (independiente de la intensidad): mejores modelos descubiertos + maximo esfuerzo, sin bajar por ahorro. Solo en modo automatico.
+$polMax = ((Get-PoliticaCalidad) -eq 'maxima') -and ($cfg.modo -ne 'manual')
+if ($polMax) { $Calidad = 'maxima' }
 if ($cfg.activo -eq $false) { [pscustomobject]@{ modo = $cfg.modo; calidad = $Calidad; destino = 'apagado'; cuenta = ''; perfil = ''; modelo = ''; esfuerzo = ''; motivo = 'Multi-IA está APAGADO (interruptor del panel o /multi-ia): no se delega, resolvelo vos directo'; segundo = $null } | ConvertTo-Json -Compress; exit 0 }
 if ($Tarea -eq 'imagen') { [pscustomobject]@{ modo = $cfg.modo; calidad = $Calidad; destino = 'ninguno'; cuenta = ''; perfil = ''; modelo = ''; esfuerzo = ''; motivo = 'Imagen, video o audio: ningún motor delegado (Codex, Gemini, Claude y GPT-OSS vía Antigravity) los genera. Usar otra herramienta o decírselo al usuario.'; segundo = $null } | ConvertTo-Json -Compress; exit 0 }
 $bloqueo = [int]$cfg.ahorro.umbral_bloqueo
@@ -129,6 +132,22 @@ $tabla = @{
     }
 }
 $plan = $tabla[$Calidad][$Tarea]
+# 3.3.0: con la politica Maxima el modelo y el esfuerzo salen de lo DESCUBIERTO (codex debug models / agy models), no de nombres fijos.
+# La revision cruzada solo se pide donde aporta calidad real (codigo, revision, razonar, opinion): en texto/contenido/trivial no.
+$mxCodex = $null; $mxAgy = $null
+if ($polMax -and $plan) {
+    if ($codexCtas) { $mxCodex = Get-MejorCodex }
+    if ($agyCtas) { $mxAgy = Get-MejorAgy }
+    $cruza = $Tarea -in 'codigo', 'revision', 'razonar', 'opinion'
+    if ($plan.d -eq 'codex' -and $mxCodex) {
+        $plan.m = $mxCodex.modelo; $plan.e = $mxCodex.esfuerzo; $plan.why = "Calidad Máxima: Codex $($mxCodex.modelo) con el máximo esfuerzo compatible ($($mxCodex.esfuerzo)), descubiertos en esta PC"
+        $plan.seg = if ($cruza -and $mxAgy) { @{ destino = 'agy'; perfil = ''; modelo = $mxAgy.modelo; esfuerzo = $mxAgy.esfuerzo; motivo = "revisión cruzada: otro proveedor, Antigravity $($mxAgy.modelo)" } } else { $null }
+    } elseif ($plan.d -eq 'agy' -and $mxAgy) {
+        $plan.mx = $mxAgy.modelo; $plan.e = $mxAgy.esfuerzo; $plan.p = $(if ($mxAgy.modelo -match 'claude|opus|sonnet') { 'opus' } else { 'razonar' })
+        $plan.why = "Calidad Máxima: Antigravity $($mxAgy.modelo), el modelo más capaz que lista agy en esta PC"
+        $plan.seg = if ($cruza -and $mxCodex) { @{ destino = 'codex'; perfil = ''; modelo = $mxCodex.modelo; esfuerzo = $mxCodex.esfuerzo; motivo = "revisión cruzada: otro proveedor, Codex $($mxCodex.modelo)" } } else { $null }
+    }
+}
 # APRENDIZAJE por resultados reales (sin reentrenar nada): si el motor planeado fallo mas de la mitad de las veces en esta tarea (5 o mas ejecuciones registradas),
 # se sube UN escalon de calidad (economica -> equilibrada -> maxima) y el motivo lo explica. Se apaga con ahorro.aprender = false.
 if ($cfg.ahorro.aprender -ne $false -and $Calidad -ne 'maxima' -and $plan) {
@@ -150,7 +169,7 @@ if (-not $ConCupo) {
         if ($agyCtas) { Salida 'agy' $agyCtas[0].id 'razonar' ($perfilModelo['razonar'] + '-' + $plan.e) $plan.e ('Codex no está instalado o no tiene cuenta activa: se usa Antigravity (Gemini) · ' + $plan.why) $plan.seg }   # 2.3.7
         SinDelegado 'Codex no está instalado o no tiene cuenta activa (corré /configurar para ver cómo instalarlo)'
     }
-    if ($agyCtas) { Salida 'agy' $agyCtas[0].id $plan.p ($perfilModelo[$plan.p] + '-' + $plan.e) $plan.e $plan.why $plan.seg }
+    if ($agyCtas) { Salida 'agy' $agyCtas[0].id $plan.p $(if ($plan.mx) { $plan.mx } else { $perfilModelo[$plan.p] + '-' + $plan.e }) $plan.e $plan.why $plan.seg }
     SinDelegado 'Antigravity no está instalado o no tiene cuenta activa (corré /configurar)'
 }
 
@@ -179,6 +198,6 @@ foreach ($p in $orden) {
     $u = Maximo @((Usado $filas $g '5 h'), (Usado $filas $g 'Semanal'), $(if ($p -eq 'razonar') { Usado $filas 'Antigravity · Gemini 4 Argon' 'Semanal' }))
     if ($null -ne $u -and $u -ge $bloqueo) { continue }
     $txt = if ($p -eq $plan.p) { $plan.why } else { "$($plan.why), pero su cupo está al límite: se usa el grupo alternativo" }
-    Salida 'agy' $agyCtas[0].id $p ($perfilModelo[$p] + '-' + $plan.e) $plan.e ($txt + $(if ($null -eq $u) { ' (cupo desconocido)' } else { " (cupo $g`: $u%)" })) $plan.seg
+    Salida 'agy' $agyCtas[0].id $p $(if ($plan.mx -and $p -eq $plan.p) { $plan.mx } else { $perfilModelo[$p] + '-' + $plan.e }) $plan.e ($txt + $(if ($null -eq $u) { ' (cupo desconocido)' } else { " (cupo $g`: $u%)" })) $plan.seg
 }
 SinDelegado "$(if ($Calidad -eq 'maxima') { 'El motor de calidad máxima' } else { 'Todos los cupos de Antigravity' }) está en $bloqueo% o más"
