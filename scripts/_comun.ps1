@@ -621,20 +621,30 @@ function Get-CostoClaude {
 # 2.3.10 (auditoria cruzada Codex): Job Object de Windows para poder cerrar TODOS los descendientes de un proceso, tambien los nietos huerfanos cuyo
 # padre intermedio ya murio (taskkill /T y la busqueda por ParentProcessId no los alcanzan). Sin KILL_ON_JOB_CLOSE: en el camino normal solo se
 # suelta el handle y nada se mata. Si algo falla (otro job que no anida, sin P/Invoke) devuelve $null y se usa el cierre anterior.
-function New-JobKill($Proceso) {
+# 3.4.0: -MatarAlCerrar (solo lecturas de cupo, nunca delegaciones) activa KILL_ON_JOB_CLOSE: si a ESTE PowerShell lo matan desde afuera
+# (el timeout de $.process.run del panel), Windows cierra el handle y termina el agy hijo en vez de dejarlo huerfano gastando cupo.
+function New-JobKill($Proceso, [switch]$MatarAlCerrar) {
     try {
-        if (-not ('MultiIA.JobKill' -as [type])) {
+        if (-not ('MultiIA.JobKill2' -as [type])) {
             Add-Type -ErrorAction Stop -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
 namespace MultiIA {
-  public static class JobKill {
+  public static class JobKill2 {
+    [StructLayout(LayoutKind.Sequential)] struct Basica { public long a; public long b; public uint Flags; public UIntPtr c; public UIntPtr d; public uint e; public UIntPtr f; public uint g; public uint h; }
+    [StructLayout(LayoutKind.Sequential)] struct Io { public ulong a, b, c, d, e, f; }
+    [StructLayout(LayoutKind.Sequential)] struct Extendida { public Basica B; public Io I; public UIntPtr a; public UIntPtr b; public UIntPtr c; public UIntPtr d; }
     [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr CreateJobObject(IntPtr a, string n);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool AssignProcessToJobObject(IntPtr j, IntPtr p);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr j, uint c);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr h);
-    public static IntPtr Crear(IntPtr proceso) {
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetInformationJobObject(IntPtr j, int clase, ref Extendida info, uint largo);
+    public static IntPtr Crear(IntPtr proceso, bool matarAlCerrar) {
       IntPtr j = CreateJobObject(IntPtr.Zero, null);
       if (j == IntPtr.Zero) return IntPtr.Zero;
+      if (matarAlCerrar) {
+        Extendida x = new Extendida(); x.B.Flags = 0x2000;   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        SetInformationJobObject(j, 9, ref x, (uint)Marshal.SizeOf(typeof(Extendida)));
+      }
       if (!AssignProcessToJobObject(j, proceso)) { CloseHandle(j); return IntPtr.Zero; }
       return j;
     }
@@ -644,30 +654,34 @@ namespace MultiIA {
 }
 '@
         }
-        $j = [MultiIA.JobKill]::Crear($Proceso.Handle)
+        if ($null -eq $Proceso) { return $null }   # 3.4.0: llamada de preparacion (solo compila el tipo)
+        $j = [MultiIA.JobKill2]::Crear($Proceso.Handle, [bool]$MatarAlCerrar)
         if ($j -eq [IntPtr]::Zero) { return $null }
         return $j
     } catch { return $null }
 }
 function Stop-JobKill($Job, [bool]$Matar) {
     if ($null -eq $Job) { return }
-    try { if ($Matar) { [MultiIA.JobKill]::Terminar($Job) }; [MultiIA.JobKill]::Cerrar($Job) } catch { }
+    try { if ($Matar) { [MultiIA.JobKill2]::Terminar($Job) }; [MultiIA.JobKill2]::Cerrar($Job) } catch { }
 }
 
 # Ejecuta un .exe con LIMITE de tiempo (lo mata si no termina) y devuelve @{ salida; error; codigo }, o $null si se paso del tiempo.
 # Sin esto, un agy o codex colgado bloquearia el panel para siempre.
 function Invoke-ConTimeout {
     # -Duro: ante el vencimiento devuelve un objeto con timeout=$true (codigo 124) en vez de $null, para clasificar y no perder la salida parcial.
-    param([string]$Exe, [string[]]$Argumentos, [int]$Segundos = 30, [switch]$Duro)
+    param([string]$Exe, [string[]]$Argumentos, [int]$Segundos = 30, [switch]$Duro, [switch]$MatarAlCerrar)
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
     $psi.Arguments = ($Argumentos | ForEach-Object { if ($_ -match '[\s"]') { '"' + (ConvertTo-ArgWin $_) + '"' } else { $_ } }) -join ' '
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.RedirectStandardInput = $true; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
     $psi.StandardOutputEncoding = [Text.Encoding]::UTF8; $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
     $inicioP = (Get-Date).AddSeconds(-2)
+    # 3.4.0: el tipo del Job Object se compila ANTES de lanzar el proceso. Antes Add-Type (1-2 s bajo carga) corria con el hijo ya vivo
+    # y fuera del Job: si el panel mataba a PowerShell en ese hueco, agy/codex quedaba huerfano.
+    $null = New-JobKill $null
     # 2.3.8 (Codex #4): un ejecutable que no arranca (no es una app valida, sin permiso, borrado) NO debe lanzar una excepcion cruda: se devuelve un resultado clasificable (codigo 126, arranque=$false).
     try { $p = [Diagnostics.Process]::Start($psi) } catch { return @{ salida = ''; error = "no arranca: $($_.Exception.Message)"; codigo = 126; timeout = $false; arranque = $false } }
-    $job = New-JobKill $p   # 2.3.10 (Codex): el proceso y todo lo que lance quedan en un Job Object: se cierra el arbol aunque el intermedio ya haya muerto
+    $job = New-JobKill $p -MatarAlCerrar:$MatarAlCerrar   # 2.3.10 (Codex): el proceso y todo lo que lance quedan en un Job Object: se cierra el arbol aunque el intermedio ya haya muerto
     try { $p.StandardInput.Close() } catch { }  # 2.0: cerrar stdin para que codex/agy no esperen entrada (cuelgue bajo Start-Job)
     $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()
     if (-not $p.WaitForExit($Segundos * 1000)) {
@@ -701,11 +715,16 @@ function Invoke-ConTimeout {
 }
 
 # Cupo real de Antigravity: el comando oficial `agy -p "/usage"` (no toca credenciales). Devuelve objetos grupo/etiqueta/restante/reinicia.
+# 3.4.0: -Segundos lo fija quien llama (limites.ps1 -Json reparte un presupuesto total menor al timeout del panel).
+# $script:MotivoCupoAgy deja por que no hubo datos ('no instalado' | 'tiempo agotado' | 'sin datos'), para el respaldo con edad visible.
 function Get-CupoAgy {
+    param([int]$Segundos = 45)
+    $script:MotivoCupoAgy = ''
     $agy = Find-AgyExe
-    if (-not $agy) { return @() }
-    $r = Invoke-ConTimeout $agy @('-p', '/usage') 45
-    if (-not $r) { return @() }
+    if (-not $agy) { $script:MotivoCupoAgy = 'no instalado'; return @() }
+    $r = Invoke-ConTimeout $agy @('-p', '/usage') $Segundos -MatarAlCerrar
+    if (-not $r) { $script:MotivoCupoAgy = 'tiempo agotado'; return @() }
+    if (-not ($r.salida -match "`t")) { $script:MotivoCupoAgy = 'sin datos' }
     $txt = $r.salida -split "`r?`n"
     @($txt | Where-Object { $_ -match "`t" } | ForEach-Object {
         $c = $_ -split "`t"
@@ -716,7 +735,7 @@ function Get-CupoAgy {
 # Cupo real de Codex (plan ChatGPT) EN VIVO: limites-codex.mjs habla con `codex app-server` (necesita Node). Devuelve plan y ventanas con % usado.
 # Devuelve $null si no se pudo leer (sin Node, sin sesion de Codex, etc.).
 function Get-CupoCodex {
-    param([string]$CodexHome)   # carpeta de otra cuenta de Codex (CODEX_HOME); vacio = la cuenta normal
+    param([string]$CodexHome, [int]$Segundos = 40)   # carpeta de otra cuenta de Codex (CODEX_HOME); vacio = la cuenta normal. -Segundos: limite propio del mjs
     $codex = Find-CodexExe
     $node = (Get-Command node -ErrorAction SilentlyContinue).Source
     if (-not $node -and (Test-Path -LiteralPath "$env:LOCALAPPDATA\Programs\nodejs\node.exe")) { $node = "$env:LOCALAPPDATA\Programs\nodejs\node.exe" }
@@ -724,7 +743,7 @@ function Get-CupoCodex {
     $viejo = $env:CODEX_HOME
     try {
         if ($CodexHome) { $env:CODEX_HOME = $CodexHome }
-        $linea = & $node (Join-Path $script:ScriptsDir 'limites-codex.mjs') $codex 2>$null | Select-Object -First 1
+        $linea = & $node (Join-Path $script:ScriptsDir 'limites-codex.mjs') $codex $Segundos 2>$null | Select-Object -First 1
     } finally { if ($CodexHome) { $env:CODEX_HOME = $viejo } }
     if (-not $linea) { return $null }
     $r = try { ($linea | ConvertFrom-Json).result.rateLimits } catch { $null }
@@ -855,53 +874,107 @@ function Get-PoliticaCalidad {
 }
 $script:EsfuerzoOrden = @('minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
 function Get-CacheModelos {
-    param([string]$Motor, [scriptblock]$Descubrir, [int]$TtlMin = 360)
+    # -Esquema: version del formato guardado; una cache de formato viejo se descarta y se vuelve a descubrir (3.4.0 agrega descripcion/contexto).
+    param([string]$Motor, [scriptblock]$Descubrir, [int]$TtlMin = 360, [int]$Esquema = 1)
     $f = Join-Path $script:DatosDir "modelos-$Motor.json"
     if (Test-Path -LiteralPath $f) {
         try {
             $o = Get-Content -LiteralPath $f -Raw -Encoding UTF8 | ConvertFrom-Json
-            if (((Get-Date) - [datetime]$o.tomado).TotalMinutes -lt $TtlMin -and @($o.lista).Count -gt 0) { return @($o.lista) }
+            $esq = if ($null -ne $o.esquema) { [int]$o.esquema } else { 1 }
+            if ($esq -eq $Esquema -and ((Get-Date) - [datetime]$o.tomado).TotalMinutes -lt $TtlMin -and @($o.lista).Count -gt 0) { return @($o.lista) }
         } catch { }
     }
     $lista = @(& $Descubrir)
-    if ($lista.Count -gt 0) { try { [pscustomobject]@{ tomado = (Get-Date).ToString('s'); lista = $lista } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $f -Encoding UTF8 } catch { } }
+    if ($lista.Count -gt 0) { try { [pscustomobject]@{ tomado = (Get-Date).ToString('s'); esquema = $Esquema; lista = $lista } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $f -Encoding UTF8 } catch { } }
     $lista
 }
-# Mejor modelo de Codex realmente disponible: menor 'priority' entre los visibles; esfuerzo maximo que ese modelo soporta.
-function Get-MejorCodex {
-    $lista = Get-CacheModelos 'codex' {
+# 3.4.0: catalogo de Codex con los campos que la CLI DOCUMENTA (`codex debug models`): descripcion, contexto, prioridad del selector, visibilidad, esfuerzos.
+function Get-ModelosCodex {
+    Get-CacheModelos 'codex' -Esquema 2 {
         $cx = Find-CodexExe; if (-not $cx) { return }
         $r = Invoke-ConTimeout $cx @('debug', 'models') 30; if (-not $r) { return }
         $o = try { $r.salida | ConvertFrom-Json } catch { $null }
         $l = if ($o.models) { $o.models } else { $o }
-        @($l | ForEach-Object { [pscustomobject]@{ slug = $_.slug; prioridad = $(if ($null -ne $_.priority) { [int]$_.priority } else { 999 }); visible = ([string]$_.visibility -in '', 'list'); esfuerzos = @($_.supported_reasoning_levels | ForEach-Object { $_.effort }) } })
+        @($l | Where-Object { $_.slug } | ForEach-Object { [pscustomobject]@{ slug = [string]$_.slug; nombre = [string]$_.display_name; descripcion = [string]$_.description; contexto = $(if ($_.context_window) { [int]$_.context_window } else { $null }); prioridad = $(if ($null -ne $_.priority) { [int]$_.priority } else { 999 }); visible = ([string]$_.visibility -in '', 'list'); esfuerzo_def = [string]$_.default_reasoning_level
+                    esfuerzos = @($_.supported_reasoning_levels | ForEach-Object { $_.effort }); esfuerzos_desc = @($_.supported_reasoning_levels | ForEach-Object { [pscustomobject]@{ e = [string]$_.effort; d = [string]$_.description } }) } })
     }
+}
+# Esfuerzos que Calidad Maxima NO usa: 'ultra' esta documentado por la CLI como "Maximum reasoning with automatic task delegation"
+# (delega sub-tareas por su cuenta: observado 100-354 s y hasta 1,37 M tokens por tarea). No es mas profundidad que 'max', es otro modo de trabajo.
+$script:EsfuerzoExcluidoMax = @('ultra')
+function Get-EsfuerzoMax([object[]]$Esfuerzos) {
+    $v = @($Esfuerzos | Where-Object { $_ -and $_ -notin $script:EsfuerzoExcluidoMax } | Sort-Object { $script:EsfuerzoOrden.IndexOf([string]$_) })
+    if ($v) { [string]$v[-1] } else { '' }
+}
+# Mejor modelo de Codex para CALIDAD (no costo): el que la CLI describe como de frontera / para lo mas exigente; entre varios, el primero del selector.
+# Si ninguno se describe asi, el primero visible del selector (y el motivo lo dice). Esfuerzo: el maximo documentado sin 'ultra'.
+$script:PatronFrontera = '(?i)frontier|most demanding|hardest|most capable|most intelligent'
+function Get-MejorCodex {
+    $lista = @(Get-ModelosCodex)
     $vis = @($lista | Where-Object { $_.visible } | Sort-Object prioridad)
     if (-not $vis) { $vis = @($lista | Sort-Object prioridad) }
     if (-not $vis) { return $null }
-    $m = $vis[0]
-    $esf = @($m.esfuerzos | Sort-Object { $script:EsfuerzoOrden.IndexOf([string]$_) })[-1]
-    [pscustomobject]@{ modelo = $m.slug; esfuerzo = $esf; esfuerzos = @($m.esfuerzos); candidatos = @($vis | ForEach-Object { $_.slug }) }
+    $front = @($vis | Where-Object { $_.descripcion -match $script:PatronFrontera })
+    $m = if ($front) { $front[0] } else { $vis[0] }
+    $base = if ($front) { "documentado: la CLI lo describe como '$($m.descripcion)'" } else { "sin modelo descripto como de frontera: el primero del selector de la CLI ($($m.descripcion))" }
+    [pscustomobject]@{ modelo = $m.slug; esfuerzo = (Get-EsfuerzoMax $m.esfuerzos); esfuerzos = @($m.esfuerzos); excluidos = @($m.esfuerzos | Where-Object { $_ -in $script:EsfuerzoExcluidoMax }); base = $base; contexto = $m.contexto; candidatos = @($vis | ForEach-Object { $_.slug }) }
 }
-# Mejor modelo de agy: por familia (potencia), luego proveedor (Gemini nativo primero), luego version, luego esfuerzo maximo (suele ser el sufijo del slug).
+# Partes de un slug de agy: familia (sin version ni esfuerzo), version numerica y esfuerzo del sufijo.
+function Split-SlugAgy([string]$Slug) {
+    $ef = if ($Slug -match '-(low|medium|high|xhigh|max)$') { $Matches[1] } else { '' }
+    $base = $Slug -replace '-(low|medium|high|xhigh|max)$', ''
+    $ver = 0.0; $fam = $base
+    if ($base -match '^(.*?)-(\d+(?:[.-]\d+)*)(?=-|$)(.*)$') { $pz = @($Matches[2] -split '[.-]'); $ver = [double]::Parse($(if ($pz.Count -ge 2) { "$($pz[0]).$($pz[1])" } else { $pz[0] }), [Globalization.CultureInfo]::InvariantCulture); $fam = ($Matches[1] + $Matches[3]) }
+    [pscustomobject]@{ slug = $Slug; base = $base; familia = $fam; version = $ver; esfuerzo = $ef }
+}
+# 3.4.0: modelo de agy por REGLA explicable, sin ranking inventado: agy solo expone slug y nombre (sin descripcion, contexto ni capacidades),
+# asi que no hay base para decir que una familia es "mas capaz" que otra. La familia la fija el ROL de la tarea (perfil del plugin, regla documentada
+# en elegir.ps1); dentro de esa familia se toma la version mas nueva que liste agy en esta PC (asi un modelo nuevo entra sin release) y el esfuerzo mas alto.
+$script:FamiliaPerfil = @{ texto = 'gemini-flash'; razonar = 'gemini-argon'; opus = 'claude-opus'; sonnet = 'claude-sonnet'; oss = 'gpt-oss-120b' }
 function Get-MejorAgy {
-    $lista = Get-CacheModelos 'agy' { @(Get-CatalogoAgy) }
+    param([string]$Perfil = 'razonar')
+    $lista = @(Get-CacheModelos 'agy' { @(Get-CatalogoAgy) })
     if (-not $lista) { return $null }
-    $punt = foreach ($m in $lista) {
-        $s = [string]$m.slug
-        $tier = if ($s -match 'argon|opus|ultra|pro') { 3 } elseif ($s -match 'sonnet') { 2 } elseif ($s -match 'flash|haiku') { 1 } else { 0 }
-        $prov = if ($s -match '^gemini') { 1 } else { 0 }
-        $ver = 0.0; if ($s -match '-(\d+(?:[.-]\d+)?)-') { $ver = [double]::Parse(($Matches[1] -replace '-', '.'), [Globalization.CultureInfo]::InvariantCulture) }
-        $ef = if ($s -match '-(low|medium|high|xhigh|max)$') { $script:EsfuerzoOrden.IndexOf($Matches[1]) } else { 0 }
-        [pscustomobject]@{ slug = $s; nombre = $m.nombre; tier = $tier; prov = $prov; ver = $ver; ef = $ef }
+    $fam = $script:FamiliaPerfil[$Perfil]; if (-not $fam) { $fam = $script:FamiliaPerfil['razonar']; $Perfil = 'razonar' }
+    $p = @($lista | ForEach-Object { $s = Split-SlugAgy ([string]$_.slug); $s | Add-Member -NotePropertyName nombre -NotePropertyValue ([string]$_.nombre) -PassThru })
+    $c = @($p | Where-Object { $_.familia -eq $fam } | Sort-Object @{e = 'version'; Descending = $true }, @{e = { $script:EsfuerzoOrden.IndexOf($_.esfuerzo) }; Descending = $true })
+    if (-not $c) { return $null }
+    $m = $c[0]
+    [pscustomobject]@{ modelo = $m.slug; nombre = $m.nombre; esfuerzo = $m.esfuerzo; perfil = $Perfil; familia = $fam; base = "regla: rol '$Perfil' -> familia $fam; versión más nueva listada por agy y esfuerzo más alto"; candidatos = @($c | ForEach-Object { $_.slug }) }
+}
+# 3.4.0 INVENTARIO de modelos (Codex y agy), con cada dato ETIQUETADO: documentado (lo dice la CLI), observado (ejecuciones reales de uso.jsonl),
+# estimado (calculo del plugin) o no determinable. Motor != modelo: agy es un motor que corre modelos de Google, Anthropic y OpenAI.
+function Get-InventarioModelos {
+    $uso = @(Get-Uso | Where-Object { Test-Productivo $_ })
+    $obs = {
+        param($motor, $slug)
+        $f = @($uso | Where-Object { $_.destino -eq $motor -and [string]$_.modelo -eq $slug })
+        if (-not $f) { return [pscustomobject]@{ n = 0; ok = $null; seg_medio = $null; etiqueta = 'no determinable (sin ejecuciones reales)' } }
+        $ok = @($f | Where-Object { [int]$_.salida -eq 0 }).Count
+        [pscustomobject]@{ n = $f.Count; ok = [int][math]::Round(100 * $ok / $f.Count); seg_medio = [math]::Round((($f | Measure-Object seg -Average).Average), 1); etiqueta = 'observado' }
     }
-    $orden = @($punt | Sort-Object @{e = 'tier'; Descending = $true }, @{e = 'prov'; Descending = $true }, @{e = 'ver'; Descending = $true }, @{e = 'ef'; Descending = $true })
-    $m = $orden[0]
-    # Segundo mejor de OTRA familia/proveedor: sirve de revisor cuando la revision cruzada aporta calidad real.
-    $otro = @($orden | Where-Object { ($_.slug -replace '-(low|medium|high|xhigh|max)$', '') -ne ($m.slug -replace '-(low|medium|high|xhigh|max)$', '') -and $_.tier -ge 2 })
-    $otro = @($otro | Where-Object { ($_.prov -ne $m.prov) })
-    $rev = if ($otro) { $otro[0].slug } else { $null }
-    [pscustomobject]@{ modelo = $m.slug; nombre = $m.nombre; esfuerzo = $(if ($m.slug -match '-(low|medium|high|xhigh|max)$') { $Matches[1] } else { '' }); revisor = $rev; candidatos = @($orden | ForEach-Object { $_.slug }) }
+    $prov = { param($s) if ($s -match '^gemini') { 'Google' } elseif ($s -match '^claude') { 'Anthropic' } elseif ($s -match '^gpt') { 'OpenAI' } else { 'no determinable' } }
+    $out = @()
+    $cx = [bool](Find-CodexExe); $ag = [bool](Find-AgyExe)
+    if ($cx) {
+        foreach ($m in @(Get-ModelosCodex)) {
+            $o = & $obs 'codex' $m.slug
+            $out += [pscustomobject]@{ motor = 'codex'; modelo = $m.slug; nombre = $m.nombre; proveedor = 'OpenAI'; disponible = [bool]$m.visible
+                descripcion = @{ v = $m.descripcion; e = 'documentado' }; contexto = @{ v = $m.contexto; e = $(if ($m.contexto) { 'documentado' } else { 'no determinable' }) }
+                esfuerzos = @{ v = @($m.esfuerzos); e = 'documentado' }; herramientas = @{ v = 'shell, apply_patch (agente de código)'; e = 'documentado' }
+                cuota = @{ v = 'por cuenta de ChatGPT (5 h / semanal), no por modelo'; e = 'documentado' }; latencia_seg = @{ v = $o.seg_medio; e = $o.etiqueta }; exito_pct = @{ v = $o.ok; e = $o.etiqueta }; ejecuciones = $o.n }
+        }
+    }
+    if ($ag) {
+        foreach ($m in @(Get-CacheModelos 'agy' { @(Get-CatalogoAgy) })) {
+            $s = Split-SlugAgy ([string]$m.slug); $o = & $obs 'agy' $s.slug
+            $out += [pscustomobject]@{ motor = 'agy'; modelo = $s.slug; nombre = [string]$m.nombre; proveedor = (& $prov $s.slug); disponible = $true
+                descripcion = @{ v = $null; e = 'no determinable (agy models solo lista slug y nombre)' }; contexto = @{ v = $null; e = 'no determinable' }
+                esfuerzos = @{ v = @($s.esfuerzo | Where-Object { $_ }); e = 'documentado (sufijo del slug)' }; herramientas = @{ v = 'las de Antigravity (lectura; escritura con -Escribir)'; e = 'documentado' }
+                cuota = @{ v = 'por grupo de Antigravity (Gemini / Claude+GPT)'; e = 'observado (cupo de agy)' }; latencia_seg = @{ v = $o.seg_medio; e = $o.etiqueta }; exito_pct = @{ v = $o.ok; e = $o.etiqueta }; ejecuciones = $o.n }
+        }
+    }
+    $out
 }
 
 # "en 3 h 20 min" a partir de una hora de reinicio ISO (UTC); "ya reinició" si paso.
@@ -929,6 +1002,8 @@ function Get-CupoGeneral {
     # $Codex: hashtable nombre-de-cuenta -> cupo (varias cuentas de Codex posibles).
     if ($Codex) { foreach ($e in $Codex.GetEnumerator()) { if ($e.Value) { foreach ($w in $e.Value.ventanas) { $f += [pscustomobject]@{ ia = $e.Key; ventana = $(if ($w.etiqueta -eq 'Semanal') { 'Semanal' } else { '5 h' }); usado = $w.usado; reinicia = $w.reinicia; origen = 'en vivo' } } } } }
     foreach ($q in @($Agy)) {
+        # 3.4.0: una lectura vacia de agy llega como $null y @($null) itera una vez: armaba una tarjeta INVENTADA «Antigravity · » al 100 % «en vivo».
+        if (-not $q -or -not $q.grupo) { continue }
         $ia = switch -Regex ($q.grupo) { '^Gemini Models' { 'Antigravity · Gemini' } '^Claude and GPT' { 'Antigravity · Claude/GPT' } default { 'Antigravity · ' + $q.grupo } }
         $v = if ($q.etiqueta -match '(?i)five hour') { '5 h' } elseif ($q.etiqueta -match '(?i)weekly') { 'Semanal' } else { $q.etiqueta }
         $f += [pscustomobject]@{ ia = $ia; ventana = $v; usado = 100 - $q.restante; reinicia = $q.reinicia; origen = 'en vivo' }

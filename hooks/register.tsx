@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '3.3.2'
+const VERSION = '3.4.0'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -541,9 +541,17 @@ function svgTerminal(W: number, titulo: string, filas: FilaT[], activos: string[
 let ultimoCambio = 0
 let guardando = 0
 
-async function leerLimites($: any): Promise<Datos> {
-  const r = await $.process.run([...PS, script($, 'limites.ps1'), '-Json'], { timeoutMs: 45000 })
-  return JSON.parse(String(r.stdout || '').replace(/^﻿/, '').trim()) as Datos
+// 3.4.0: limites.ps1 -Json reparte 28 s entre agy y Codex (y espera a lo sumo 38 s si otra sesion ya esta leyendo), asi que termina
+// antes de estos 45 s; si igual se pasa, el error dice que fue y el panel conserva los datos anteriores con su edad.
+async function leerLimites($: any): Promise<Datos & { cache_seg?: number }> {
+  let r: any
+  try {
+    r = await $.process.run([...PS, script($, 'limites.ps1'), '-Json'], { timeoutMs: 45000 })
+  } catch (err) {
+    const t = String(err)
+    throw new Error(/still running|timed? ?out/i.test(t) ? 'la lectura de cupos superó 45 s; quedan los datos anteriores' : t.replace(/^Error: /, '').slice(0, 80))
+  }
+  return JSON.parse(String(r.stdout || '').replace(/^﻿/, '').trim()) as Datos & { cache_seg?: number }
 }
 
 // Desde este % de cupo de Claude (5 h o semanal) se activa el modo ahorro fuerte: delega con mas fuerza.
@@ -604,10 +612,12 @@ async function refrescarUna($: any) {
     })
     await update($, actualizado, () => new Date().toLocaleTimeString('es-AR'))
     const f = ahoraIso()
-    await update($, latido, l => ({ ...l, cupos: Date.now(), leyendo: false, err: '', movs: [...l.movs, ...cambios.map(t => ({ f, t }))].slice(-6) }))
+    const edadLectura = Math.max(0, Number(j.cache_seg) || 0) * 1000   // cache servida por limites.ps1: la edad real, no «recien leido»
+    await update($, latido, l => ({ ...l, cupos: Date.now() - edadLectura, leyendo: false, err: '', movs: [...l.movs, ...cambios.map(t => ({ f, t }))].slice(-6) }))
   } catch (err) {
-    await update($, actualizado, () => 'error: ' + String(err).slice(0, 80))
-    await update($, latido, l => ({ ...l, leyendo: false, err: String(err).slice(0, 80) }))
+    const msg = String((err as any)?.message ?? err).slice(0, 80)
+    await update($, actualizado, () => 'error: ' + msg)
+    await update($, latido, l => ({ ...l, leyendo: false, err: msg }))
   }
 }
 
@@ -814,7 +824,8 @@ export const register: Register = on => {
     const hace = (s: number) => (s < 60 ? s + ' s' : Math.floor(s / 60) + ' min')
     const enVivo = edadRap >= 0 && edadRap <= 15
     const cuposViejos = edadCupos < 0 || edadCupos > 150
-    const estado = lat.err ? { c: T.errorSuave, t: '● error al leer cupos · reintenta solo' }
+    // 3.4.0: con error se dice de cuándo son los cupos que siguen a la vista (no se borran ni se dan por frescos).
+    const estado = lat.err ? { c: T.errorSuave, t: '● error al leer cupos' + (edadCupos >= 0 ? ' · datos de hace ' + hace(edadCupos) : '') + ' · reintenta solo' }
       : !enVivo ? { c: T.ambar, t: edadRap < 0 ? '● enlace del panel: conectando…' : '● sin señal hace ' + hace(edadRap) }
       : lat.leyendo ? { c: T.info, t: '● actualizando cupos…' }
       : { c: cuposViejos ? T.ambar : T.okSuave, t: '● en vivo' }
@@ -1199,17 +1210,22 @@ export const register: Register = on => {
     const ESTADOS: Record<string, [string, string]> = {
       seleccionado: ['Seleccionado', T.info], inicio: ['Ejecutando', T.aviso], confirmado: ['Confirmado', T.info], recibido: ['Recibido', T.info],
       fin: ['Completado, sin verificar', T.okSuave], error: ['Error', T.errorSuave], 'sin-delegar': ['No delegó', T.tenue],
+      // 3.4.0: el respaldo y la falta de respaldo se ven con su nombre (antes salía el tipo crudo del evento)
+      'cambio-motor': ['Cambio de motor', T.aviso], 'sin-respaldo': ['Sin respaldo', T.tenue],
     }
     // Una fila por ejecución (se unen por ID); la más nueva primero. Los pasos intermedios solo se ven si son el último estado.
-    const grupos: { v: Evento; m: string }[] = []
+    const grupos: { v: Evento; m: string; p: string }[] = []
     const idxId = new Map<string, number>()
+    // p = modelo pedido: solo de los eventos que lo traen en el detalle (cambio-motor y sin-respaldo traen otra cosa ahí)
+    const conModelo = (v: Evento) => ['seleccionado', 'inicio', 'confirmado', 'recibido', 'fin', 'error'].includes(v.t) ? v.x || '' : ''
     for (const v of eventos) {
       const k = v.i ? idxId.get(v.i) : undefined
-      if (k !== undefined) { grupos[k].v = v; grupos[k].m = grupos[k].m || v.m || '' } else { if (v.i) idxId.set(v.i, grupos.length); grupos.push({ v, m: v.m || '' }) }
+      if (k !== undefined) { grupos[k].v = v; grupos[k].m = grupos[k].m || v.m || ''; grupos[k].p = conModelo(v) || grupos[k].p } else { if (v.i) idxId.set(v.i, grupos.length); grupos.push({ v, m: v.m || '', p: conModelo(v) }) }
     }
-    const filasCons: { hora: string; ia: string; modelo: string; estado: string; color: string; motivo: string }[] = grupos.reverse().map(({ v, m }) => {
+    // 3.4.0: cada fila muestra el modelo PEDIDO para esa ejecución (no solo el último verificado del motor) y la confirmación real de la CLI.
+    const filasCons: { hora: string; ia: string; modelo: string; pedido: string; conf: string; estado: string; color: string; motivo: string }[] = grupos.reverse().map(({ v, m, p }) => {
       const [est, col] = ESTADOS[v.t] ?? [v.t, T.tenue]
-      return { hora: horaEv(v.f), ia: nombreProv(v.d), modelo: modeloDe(v.d), estado: est, color: col, motivo: m || (v.k ? tarea(v.k) : '') }
+      return { hora: horaEv(v.f), ia: nombreProv(v.d), modelo: modeloDe(v.d), pedido: p, conf: v.c || '', estado: est, color: col, motivo: m || (v.k ? tarea(v.k) : '') }
     })
     const nombresActivos = activos.map(v => nombreProv(v.d))
     const vistaSet = (patch: Partial<Vista>) => void update($, vistaA, v => ({ ...v, ...patch }))
@@ -1481,7 +1497,7 @@ export const register: Register = on => {
     const filasAlt = centro ? filasCons.slice(0, 3) : ventanaCons
     const miniConsola = (
       <Box flexDirection="column" gap="xs">
-        {svg(svgTerminal(anchoT, 'Consola', filasAlt.map(f => ({ ia: f.ia, hora: f.hora, c: f.color, a: f.modelo === 'Modelo no verificable' ? f.ia : f.ia + ' · ' + f.modelo, tag: f.estado, b: (f.motivo || 'sin motivo registrado') + (f.modelo === 'Modelo no verificable' ? ' · modelo no verificable' : '') })), nombresActivos, grupos.length, 'Sin actividad todavía'), (centro ? 'Consola resumida' : 'Mini consola') + ' · ' + (nombresActivos.length ? 'activos: ' + nombresActivos.join(', ') + ' · ' : '') + (filasAlt.length ? filasAlt.map(f => f.hora + ' ' + f.ia + ' (' + f.modelo + ') ' + f.estado + ': ' + f.motivo).join(' | ') : 'sin actividad todavía'), anchoT, 60 + Math.max(1, filasAlt.length) * 42 + 10)}
+        {svg(svgTerminal(anchoT, 'Consola', filasAlt.map(f => ({ ia: f.ia, hora: f.hora, c: f.color, a: f.ia + (f.pedido ? ' · ' + f.pedido : f.modelo === 'Modelo no verificable' ? '' : ' · ' + f.modelo), tag: f.estado, b: (f.motivo || 'sin motivo registrado') + (f.modelo === 'Modelo no verificable' ? ' · modelo no verificable' : '') + (f.conf ? ' · CLI: ' + f.conf : '') })), nombresActivos, grupos.length, 'Sin actividad todavía'), (centro ? 'Consola resumida' : 'Mini consola') + ' · ' + (nombresActivos.length ? 'activos: ' + nombresActivos.join(', ') + ' · ' : '') + (filasAlt.length ? filasAlt.map(f => f.hora + ' ' + f.ia + ' (' + (f.pedido ? 'pedido ' + f.pedido + '; ' : '') + f.modelo + ') ' + f.estado + ': ' + f.motivo).join(' | ') : 'sin actividad todavía'), anchoT, 60 + Math.max(1, filasAlt.length) * 42 + 10)}
         <Box flexDirection="row" gap="xs" alignItems="center">
           {!centro && <Button variant="secondary" isDisabled={desde <= 0} onPress={() => vistaSet({ cp: Math.max(0, desde - 1) })}>▲ Subir</Button>}
           {!centro && <Button variant="secondary" isDisabled={desde >= Math.max(0, filasCons.length - CP)} onPress={() => vistaSet({ cp: Math.min(Math.max(0, filasCons.length - CP), desde + 1) })}>▼ Bajar</Button>}

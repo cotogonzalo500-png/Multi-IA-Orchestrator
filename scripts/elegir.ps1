@@ -13,6 +13,7 @@ param(
     [ValidateSet('economica', 'equilibrada', 'maxima')][string]$Calidad,
     [switch]$Critico, [switch]$Dificil, [switch]$ConCupo,
     [int]$Tamano = -1,        # caracteres de la tarea (prompt + archivos); -1 = no se sabe. Lo usa la politica de intensidad para no delegar lo chico
+    [ValidateSet('', 'archivo', 'carpeta', 'ambos')][string]$Contexto = '',   # 3.4.0: contexto que el motor debe leer (agy recibe -Archivo; Codex lee -Carpeta): limita el cruce de motor
     [string]$Chat = '', [switch]$Forzar    # -Chat: id de la conversacion (por defecto la actual); -Forzar: ignora la politica de intensidad y delega igual
 )
 . (Join-Path $PSScriptRoot '_comun.ps1')
@@ -95,8 +96,9 @@ if ($cfg.modo -eq 'manual') {
     SinDelegado 'Modo manual pero no hay cuenta delegada activa para esta tarea'
 }
 
-# ---- AUTOMATICO: motor por tarea y calidad. Modelos de Codex segun su catalogo (`codex debug models`): gpt-6-astra = "inteligencia de frontera para lo mas exigente",
-# gpt-6.1-sol = el mejor para codigo (contexto 500k), gpt-6-luna = rapido y barato. En agy: gemini-4-argon (razonar), claude-opus-5-5 (opinion/revision), gemini-3.8-flash (texto).
+# ---- AUTOMATICO: motor por ROL de la tarea (codigo/revision -> Codex, que es un agente de codigo; el resto -> agy). No es un ranking de calidad entre motores.
+# Economica/equilibrada usan esta tabla. Con la politica Calidad Maxima el modelo y el esfuerzo salen del catalogo descubierto (ver bloque de abajo y _comun.ps1).
+# 3.4.0: si el motor del rol no esta disponible o esta al limite, se cruza al otro (CruzarAAgy / CruzarACodex) y el motivo lo dice.
 $A = { param($p, $e, $why, $seg) @{ d = 'agy'; p = $p; e = $e; m = ''; why = $why; seg = $seg } }
 $C = { param($m, $e, $why, $seg) @{ d = 'codex'; p = ''; m = $m; e = $e; why = $why; seg = $seg } }
 $cruce = @{ destino = 'agy'; perfil = 'opus'; esfuerzo = 'high'; motivo = 'revisión cruzada: otro proveedor, Claude Opus por el cupo de Google' }
@@ -136,15 +138,16 @@ $plan = $tabla[$Calidad][$Tarea]
 # La revision cruzada solo se pide donde aporta calidad real (codigo, revision, razonar, opinion): en texto/contenido/trivial no.
 $mxCodex = $null; $mxAgy = $null
 if ($polMax -and $plan) {
+    # 3.4.0: Codex por capacidad DOCUMENTADA (descripcion de frontera) con esfuerzo 'max' (sin 'ultra'); agy por regla de rol (familia del perfil) con la version mas nueva.
     if ($codexCtas) { $mxCodex = Get-MejorCodex }
-    if ($agyCtas) { $mxAgy = Get-MejorAgy }
     $cruza = $Tarea -in 'codigo', 'revision', 'razonar', 'opinion'
     if ($plan.d -eq 'codex' -and $mxCodex) {
-        $plan.m = $mxCodex.modelo; $plan.e = $mxCodex.esfuerzo; $plan.why = "Calidad Máxima: Codex $($mxCodex.modelo) con el máximo esfuerzo compatible ($($mxCodex.esfuerzo)), descubiertos en esta PC"
-        $plan.seg = if ($cruza -and $mxAgy) { @{ destino = 'agy'; perfil = ''; modelo = $mxAgy.modelo; esfuerzo = $mxAgy.esfuerzo; motivo = "revisión cruzada: otro proveedor, Antigravity $($mxAgy.modelo)" } } else { $null }
-    } elseif ($plan.d -eq 'agy' -and $mxAgy) {
-        $plan.mx = $mxAgy.modelo; $plan.e = $mxAgy.esfuerzo; $plan.p = $(if ($mxAgy.modelo -match 'claude|opus|sonnet') { 'opus' } else { 'razonar' })
-        $plan.why = "Calidad Máxima: Antigravity $($mxAgy.modelo), el modelo más capaz que lista agy en esta PC"
+        $plan.m = $mxCodex.modelo; $plan.e = $mxCodex.esfuerzo; $plan.why = "Calidad Máxima: Codex $($mxCodex.modelo) · $($mxCodex.esfuerzo) ($($mxCodex.base); 'ultra' excluido: auto-delega sub-tareas)"
+        $rv = if ($cruza -and $agyCtas) { Get-MejorAgy -Perfil 'opus' } else { $null }
+        $plan.seg = if ($rv) { @{ destino = 'agy'; perfil = 'opus'; modelo = $rv.modelo; esfuerzo = $rv.esfuerzo; motivo = "revisión cruzada: otro proveedor, Antigravity $($rv.modelo)" } } else { $null }
+    } elseif ($plan.d -eq 'agy' -and $agyCtas) {
+        $mxAgy = Get-MejorAgy -Perfil $plan.p
+        if ($mxAgy) { $plan.mx = $mxAgy.modelo; $plan.e = $mxAgy.esfuerzo; $plan.why = "Calidad Máxima: Antigravity $($mxAgy.modelo) ($($mxAgy.base))" }
         $plan.seg = if ($cruza -and $mxCodex) { @{ destino = 'codex'; perfil = ''; modelo = $mxCodex.modelo; esfuerzo = $mxCodex.esfuerzo; motivo = "revisión cruzada: otro proveedor, Codex $($mxCodex.modelo)" } } else { $null }
     }
 }
@@ -163,20 +166,37 @@ if ($Dificil -and $Calidad -ne 'maxima') { $plan.e = switch ($plan.e) { 'low' { 
 $perfilModelo = @{ texto = 'gemini-3.8-flash'; razonar = 'gemini-4-argon'; opus = 'claude-opus-5-5'; sonnet = 'claude-sonnet-5-5' }
 $pool = @{ texto = 'Antigravity · Gemini'; razonar = 'Antigravity · Gemini'; opus = 'Antigravity · Claude/GPT'; sonnet = 'Antigravity · Claude/GPT' }
 
+# 3.4.0 CRUCE DE MOTOR en la seleccion: si el motor del plan no esta disponible (o, con -ConCupo, esta al limite) y el otro si, se usa el otro con su mejor
+# modelo y el motivo lo dice. No cruza si el contexto no viaja (agy no lee -Carpeta; Codex no recibe -Archivo). Nunca aplica a politica-denegada (eso es en delegar.ps1).
+function AgyEsf($e) { if ($e -in 'low', 'medium', 'high') { $e } else { 'high' } }
+function CruzarAAgy($por) {
+    if (-not $agyCtas -or $Contexto -in 'carpeta', 'ambos') { return }
+    if ($script:filas) { $u = Maximo @((Usado $script:filas $pool['razonar'] '5 h'), (Usado $script:filas $pool['razonar'] 'Semanal')); if ($null -ne $u -and $u -ge $bloqueo) { return } }   # con -ConCupo: el otro motor tampoco puede estar al limite
+    $m = if ($polMax) { Get-MejorAgy -Perfil 'razonar' } else { $null }
+    $mod = if ($m) { $m.modelo } else { $perfilModelo['razonar'] + '-' + (AgyEsf $plan.e) }; $ef = if ($m) { $m.esfuerzo } else { AgyEsf $plan.e }
+    Salida 'agy' $agyCtas[0].id 'razonar' $mod $ef "cruce de motor: $por · se usa Antigravity $mod · plan original: $($plan.why)" $null
+}
+function CruzarACodex($por) {
+    if (-not $codexCtas -or $Contexto -in 'archivo', 'ambos') { return }
+    if ($script:filas) { $libre = @($codexCtas | Where-Object { $n = Get-NombreCuenta $cfg $_; $x = Maximo @((Usado $script:filas $n '5 h'), (Usado $script:filas $n 'Semanal')); $null -eq $x -or $x -lt $bloqueo }); if (-not $libre) { return } }
+    $m = if ($polMax) { Get-MejorCodex } else { $null }
+    $mod = if ($m) { $m.modelo } else { $tabla[$Calidad]['codigo'].m }; $ef = if ($m) { $m.esfuerzo } else { $plan.e }
+    Salida 'codex' $codexCtas[0].id '' $mod $ef "cruce de motor: $por · se usa Codex $mod · plan original: $($plan.why)" $null
+}
 if (-not $ConCupo) {
     if ($plan.d -eq 'codex') {
         if ($codexCtas) { Salida 'codex' $codexCtas[0].id '' $plan.m $plan.e $plan.why $plan.seg }
-        if ($agyCtas) { Salida 'agy' $agyCtas[0].id 'razonar' ($perfilModelo['razonar'] + '-' + $plan.e) $plan.e ('Codex no está instalado o no tiene cuenta activa: se usa Antigravity (Gemini) · ' + $plan.why) $plan.seg }   # 2.3.7
-        SinDelegado 'Codex no está instalado o no tiene cuenta activa (corré /configurar para ver cómo instalarlo)'
+        CruzarAAgy 'Codex no está instalado o no tiene cuenta activa'
+        SinDelegado "Codex no está instalado o no tiene cuenta activa$(if (-not $agyCtas) { ', y Antigravity tampoco' } elseif ($Contexto -in 'carpeta', 'ambos') { '; Antigravity no puede leer -Carpeta, no se cruza' }) (corré /configurar para ver cómo instalarlo)"
     }
     if ($agyCtas) { Salida 'agy' $agyCtas[0].id $plan.p $(if ($plan.mx) { $plan.mx } else { $perfilModelo[$plan.p] + '-' + $plan.e }) $plan.e $plan.why $plan.seg }
-    SinDelegado 'Antigravity no está instalado o no tiene cuenta activa (corré /configurar)'
+    CruzarACodex 'Antigravity no está instalado o no tiene cuenta activa'
+    SinDelegado "Antigravity no está instalado o no tiene cuenta activa$(if (-not $codexCtas) { ', y Codex tampoco' } elseif ($Contexto -in 'archivo', 'ambos') { '; Codex no recibe -Archivo, no se cruza' }) (corré /configurar)"
 }
-
 # ---- con cupo real: la mejor opcion que no pase el umbral de bloqueo
 $codexMap = [ordered]@{}; foreach ($c in $codexCtas) { $codexMap[(Get-NombreCuenta $cfg $c)] = Get-CupoCodex -CodexHome $c.home }
 $agyCupo = if ($agyCtas) { Get-CupoAgy } else { @() }
-$filas = @(Get-CupoGeneral -Codex $codexMap -Agy $agyCupo)
+$filas = @(Get-CupoGeneral -Codex $codexMap -Agy $agyCupo); $script:filas = $filas
 
 if ($plan.d -eq 'codex') {
     $mejor = $null; $mejorU = 999; $nota = ''
@@ -188,10 +208,11 @@ if ($plan.d -eq 'codex') {
         if ($orden -lt $mejorU) { $mejor = $c; $mejorU = $orden; $nota = if ($null -eq $m) { ' (cupo desconocido)' } else { " (cupo: $u5% en 5 h)" } }
     }
     if ($mejor) { Salida 'codex' $mejor.id '' $plan.m $plan.e ($plan.why + $nota) $plan.seg }
+    CruzarAAgy "Codex está al $bloqueo% o más, o sin cuenta activa"
     SinDelegado "Codex está al $bloqueo% o más, o sin cuenta activa"
 }
 # agy: en calidad maxima NO se baja de motor por cupo (se avisa); en las otras se prueban alternativas de otro grupo.
-if (-not $agyCtas) { SinDelegado 'Antigravity no está instalado o no tiene cuenta activa (corré /configurar)' }
+if (-not $agyCtas) { CruzarACodex 'Antigravity no está instalado o no tiene cuenta activa'; SinDelegado 'Antigravity no está instalado o no tiene cuenta activa (corré /configurar)' }
 $orden = if ($Calidad -eq 'maxima') { @($plan.p) } else { @($plan.p) + @('texto', 'razonar', 'sonnet', 'opus' | Where-Object { $_ -ne $plan.p -and $pool[$_] -ne $pool[$plan.p] }) }
 foreach ($p in $orden) {
     $g = $pool[$p]
@@ -200,4 +221,5 @@ foreach ($p in $orden) {
     $txt = if ($p -eq $plan.p) { $plan.why } else { "$($plan.why), pero su cupo está al límite: se usa el grupo alternativo" }
     Salida 'agy' $agyCtas[0].id $p $(if ($plan.mx -and $p -eq $plan.p) { $plan.mx } else { $perfilModelo[$p] + '-' + $plan.e }) $plan.e ($txt + $(if ($null -eq $u) { ' (cupo desconocido)' } else { " (cupo $g`: $u%)" })) $plan.seg
 }
+CruzarACodex "Antigravity está al $bloqueo% o más"
 SinDelegado "$(if ($Calidad -eq 'maxima') { 'El motor de calidad máxima' } else { 'Todos los cupos de Antigravity' }) está en $bloqueo% o más"

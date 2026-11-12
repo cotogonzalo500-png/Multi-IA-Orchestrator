@@ -6,11 +6,13 @@ import readline from 'node:readline';
 
 const exe = process.argv[2];
 if (!exe) { console.error('falta la ruta a codex.exe'); process.exit(1); }
+// 3.4.0: limite opcional en segundos (argv[3], 1..40). limites.ps1 -Json pasa uno menor para terminar antes que el timeout del panel.
+const seg = Math.min(40, Math.max(1, Number(process.argv[3]) || 40));
 
 const p = spawn(exe, ['app-server'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
 const envia = (o) => p.stdin.write(JSON.stringify(o) + '\n');
 const fin = (codigo) => { try { p.kill(); } catch {} process.exit(codigo); };
-setTimeout(() => { console.error('Codex no respondio a tiempo'); fin(1); }, 40000);
+setTimeout(() => { console.error('Codex no respondio a tiempo'); fin(1); }, seg * 1000);
 
 // Cualquier error del proceso o de su entrada (p. ej. EPIPE si Codex se cierra) debe terminar limpio y matar al hijo.
 p.on('error', (e) => { console.error('No se pudo ejecutar Codex: ' + e.message); fin(1); });

@@ -305,6 +305,84 @@ T 'la cache vencida (ventana ya reiniciada) se ignora' {
     Afirmar ($o -notmatch '"Prueba"') 'uso una cache vencida'
 }
 
+# 3.4.0: HooksError «aborted: still running» del panel. agy/Codex lentos se simulan con exes falsos (MULTIIA_AGY_EXE / MULTIIA_CODEX_EXE).
+Write-Host "== Lectura de cupos con motores lentos (HooksError 3.4.0)"
+$lentoExe = Join-Path $tmp 'motor-lento.exe'; $mudoExe = Join-Path $tmp 'motor-mudo.exe'
+try {
+    Add-Type -OutputType ConsoleApplication -OutputAssembly $lentoExe -TypeDefinition 'public static class L { public static void Main(){ System.Threading.Thread.Sleep(60000); } }'
+    Add-Type -OutputType ConsoleApplication -OutputAssembly $mudoExe -TypeDefinition 'public static class M { public static void Main(){ } }'
+} catch { }
+function Con-Motores([string]$agy, [string]$codex, [scriptblock]$b) {
+    $env:MULTIIA_AGY_EXE = $agy; $env:MULTIIA_CODEX_EXE = $codex
+    try { & $b } finally { Remove-Item Env:\MULTIIA_AGY_EXE, Env:\MULTIIA_CODEX_EXE -ErrorAction SilentlyContinue; Get-Process motor-lento -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
+}
+$cacheBuena = '{"tarjetas":[{"nombre":"Codex","ventanas":[{"v":"5 h","usado":11,"reinicia":"2099-01-01T00:00:00Z","origen":"en vivo","leido":"' + (Get-Date).ToUniversalTime().AddMinutes(-3).ToString('o') + '"}]},{"nombre":"Antigravity · Gemini","ventanas":[{"v":"Semanal","usado":33,"reinicia":"2099-01-01T00:00:00Z","origen":"en vivo","leido":"' + (Get-Date).ToUniversalTime().AddMinutes(-3).ToString('o') + '"}]}]}'
+T 'Get-CupoGeneral: agy sin datos NO inventa una tarjeta «Antigravity · » al 100 %' {
+    $f = @(Get-CupoGeneral -Codex $null -Agy @())
+    Afirmar (-not @($f | Where-Object { $_.ia -like 'Antigravity*' })) ('tarjeta inventada: ' + (($f | ForEach-Object { "$($_.ia) $($_.usado)%" }) -join ', '))
+}
+T 'limites -Json con agy colgado y Codex sin respuesta termina en menos de 40 s, con respaldo y edad visible' {
+    Afirmar (Test-Path $lentoExe) 'no se pudo compilar el motor falso'
+    Con-Motores $lentoExe $mudoExe {
+        [IO.File]::WriteAllText((Join-Path $tmp 'limites-cache.json'), $cacheBuena)
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $j = (PS1 'limites.ps1' @('-Json', '-Forzar') | Out-String) | ConvertFrom-Json
+        Afirmar ($sw.Elapsed.TotalSeconds -lt 40) "tardo $([int]$sw.Elapsed.TotalSeconds) s (el panel corta a los 45 s)"
+        $ag = @($j.tarjetas | Where-Object { $_.nombre -eq 'Antigravity · Gemini' })
+        Afirmar ($ag.Count -eq 1 -and $ag[0].ventanas[0].usado -eq 33) 'no conservo la ultima lectura de agy'
+        Afirmar ($ag[0].ventanas[0].origen -match 'última lectura hace 3 min · agy: tiempo agotado') ("origen: " + $ag[0].ventanas[0].origen)
+        $cx = @($j.tarjetas | Where-Object { $_.nombre -eq 'Codex' })
+        Afirmar ($cx.Count -eq 1 -and $cx[0].ventanas[0].origen -match '^última lectura hace .* Codex: no respondió') ('Codex: ' + ($cx | ConvertTo-Json -Depth 5 -Compress))
+        Afirmar (-not @($j.tarjetas | ForEach-Object { $_.ventanas } | Where-Object { $_.origen -eq 'en vivo' -and $_ })) 'marco como «en vivo» algo que no respondio'
+        Afirmar (-not @($j.tarjetas | Where-Object { $_.nombre -match '^Antigravity · $' })) 'tarjeta inventada'
+    }
+}
+T 'sin cache previa y agy colgado: no se muestra ningun cupo de agy (nada inventado)' {
+    Con-Motores $lentoExe $mudoExe {
+        Remove-Item (Join-Path $tmp 'limites-cache.json') -ErrorAction SilentlyContinue
+        $j = (PS1 'limites.ps1' @('-Json', '-Forzar') | Out-String) | ConvertFrom-Json
+        Afirmar (-not @($j.tarjetas | Where-Object { $_.nombre -like 'Antigravity*' -or $_.nombre -eq 'Codex' })) ('mostro: ' + (($j.tarjetas.nombre) -join ', '))
+    }
+}
+T 'el respaldo no usa una ventana ya reiniciada ni una lectura de mas de 6 h' {
+    Con-Motores $lentoExe $mudoExe {
+        $vieja = '{"tarjetas":[{"nombre":"Antigravity · Gemini","ventanas":[{"v":"5 h","usado":50,"reinicia":"2000-01-01T00:00:00Z","origen":"en vivo"},{"v":"Semanal","usado":40,"reinicia":"2099-01-01T00:00:00Z","origen":"en vivo","leido":"' + (Get-Date).ToUniversalTime().AddHours(-7).ToString('o') + '"}]}]}'
+        [IO.File]::WriteAllText((Join-Path $tmp 'limites-cache.json'), $vieja)
+        $j = (PS1 'limites.ps1' @('-Json', '-Forzar') | Out-String) | ConvertFrom-Json
+        Afirmar (-not @($j.tarjetas | Where-Object { $_.nombre -like 'Antigravity*' })) 'uso datos vencidos'
+    }
+}
+T 'dos lecturas simultaneas: una sola consulta en vivo (candado) y ambas devuelven datos' {
+    Con-Motores $lentoExe $mudoExe {
+        [IO.File]::WriteAllText((Join-Path $tmp 'limites-cache.json'), $cacheBuena)
+        $sal = 1..2 | ForEach-Object { Join-Path $tmp "par$_.txt" }
+        $ps = @(foreach ($x in $sal) { Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $sc 'limites.ps1')`" -Json -Forzar" -RedirectStandardOutput $x -WindowStyle Hidden -PassThru; Start-Sleep -Milliseconds 400 })
+        $max = 0; $sw = [Diagnostics.Stopwatch]::StartNew()
+        while (@($ps | Where-Object { -not $_.HasExited }).Count -and $sw.Elapsed.TotalSeconds -lt 60) { $n = @(Get-Process motor-lento -ErrorAction SilentlyContinue).Count; if ($n -gt $max) { $max = $n }; Start-Sleep -Milliseconds 200 }
+        Afirmar ($max -eq 1) "consultas en vivo simultaneas: $max"
+        foreach ($x in $sal) { $j = (Get-Content $x -Raw) | ConvertFrom-Json; Afirmar (@($j.tarjetas).Count -ge 1) "sin datos en $x" }
+        Afirmar ($sw.Elapsed.TotalSeconds -lt 42) "tardo $([int]$sw.Elapsed.TotalSeconds) s"
+    }
+}
+T 'si matan solo a PowerShell (timeout del panel) no queda agy huerfano; el candado abandonado se recupera' {
+    Con-Motores $lentoExe $mudoExe {
+        $p = Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $sc 'limites.ps1')`" -Json -Forzar" -WindowStyle Hidden -PassThru
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while (-not (Get-Process motor-lento -ErrorAction SilentlyContinue) -and $sw.Elapsed.TotalSeconds -lt 15) { Start-Sleep -Milliseconds 200 }
+        Afirmar (Get-Process motor-lento -ErrorAction SilentlyContinue) 'agy falso no arranco'
+        Stop-Process -Id $p.Id -Force; Start-Sleep 2
+        Afirmar (-not (Get-Process motor-lento -ErrorAction SilentlyContinue)) 'quedo un agy huerfano'
+        $env:MULTIIA_AGY_EXE = $mudoExe
+        $sw = [Diagnostics.Stopwatch]::StartNew(); $null = PS1 'limites.ps1' @('-Json', '-Forzar')
+        Afirmar ($sw.Elapsed.TotalSeconds -lt 30) "espero al candado abandonado ($([int]$sw.Elapsed.TotalSeconds) s)"
+    }
+}
+T 'la cache servida informa su edad (cache_seg) para que el panel no la tome por recien leida' {
+    [IO.File]::WriteAllText((Join-Path $tmp 'limites-cache.json'), $cacheBuena)
+    $j = (PS1 'limites.ps1' @('-Json') | Out-String) | ConvertFrom-Json
+    Afirmar ($null -ne $j.cache_seg -and $j.cache_seg -ge 0 -and $j.cache_seg -lt 45) "cache_seg: $($j.cache_seg)"
+}
+Remove-Item (Join-Path $tmp 'limites-cache.json') -ErrorAction SilentlyContinue
+
 Write-Host "== rapido.ps1"
 T 'rapido devuelve calidad, modo, contadores y eventos' {
     $j = (PS1 'rapido.ps1' | Out-String) | ConvertFrom-Json
@@ -2149,10 +2227,89 @@ T '3.3.1 metricas: los KPI no suman proveedores, muestran terminadas/fallidas/re
     $r = Get-Content (Join-Path (Split-Path $sc -Parent) 'hooks\register.tsx') -Raw -Encoding UTF8
     Afirmar ($r -cnotmatch "r: 'Tokens totales'") 'el KPI global no puede llamarse Tokens totales (sumaba Claude + Codex + Antigravity)'
     Afirmar ($r -match "r: 'Consumo de Claude'" -and $r -match "r: 'Delegaciones terminadas'" -and $r -match "'Recuperación de tareas'" -and $r -match "r: 'Ahorro por chat', c: T\.ahorro, ic: 'moneda'") 'faltan los cuatro KPI de 3.3.1'
-    Afirmar ($r -match "const VERSION = '3\.3\.2'") 'VERSION del panel desalineada (debe coincidir con plugin.json)'
+    Afirmar ($r -match "const VERSION = '3\.4\.0'") 'VERSION del panel desalineada (debe coincidir con plugin.json)'
     $c = Get-Content (Join-Path $sc 'chats.ps1') -Raw -Encoding UTF8
     Afirmar ($c -match "total = \[ordered\]@\{ valor = \`$null; nivel = 'NO DISPONIBLE'") 'chats.ps1 no debe producir un total entre proveedores'
 }
+# ---- 3.4.0: inventario dinamico de modelos y seleccion explicable (catalogos sembrados en la cache de la carpeta temporal: no llama a ninguna CLI)
+Write-Host "== 3.4.0 router: inventario y seleccion"
+function Sembrar-Catalogos($codex, $agy) {
+    $t = (Get-Date).ToString('s')
+    [IO.File]::WriteAllText((Join-Path $tmp 'modelos-codex.json'), ([pscustomobject]@{ tomado = $t; esquema = 2; lista = @($codex) } | ConvertTo-Json -Depth 6))
+    [IO.File]::WriteAllText((Join-Path $tmp 'modelos-agy.json'), ([pscustomobject]@{ tomado = $t; esquema = 1; lista = @($agy) } | ConvertTo-Json -Depth 6))
+}
+function CxM($slug, $desc, $prio, $ef, $vis = $true) { [pscustomobject]@{ slug = $slug; nombre = $slug; descripcion = $desc; contexto = 272000; prioridad = $prio; visible = $vis; esfuerzo_def = 'medium'; esfuerzos = @($ef); esfuerzos_desc = @() } }
+$cxCat = @((CxM 'm-sol' 'Latest workhorse model for coding and everyday work.' 1 @('low', 'medium', 'high', 'xhigh', 'max', 'ultra')), (CxM 'm-astra' 'Frontier intelligence for the most demanding work.' 2 @('low', 'medium', 'high', 'xhigh', 'max', 'ultra')), (CxM 'm-oculto' 'Frontier hidden' 0 @('max') $false))
+$agCat = @('gemini-4-argon-high', 'gemini-5-argon-medium', 'gemini-5-argon-high', 'gemini-3.8-flash-high', 'claude-opus-5-5-high', 'claude-opus-5-5-low', 'gpt-oss-120b-medium' | ForEach-Object { [pscustomobject]@{ slug = $_; nombre = $_ } })
+T '3.4.0 Calidad Maxima Codex: elige por capacidad DOCUMENTADA (frontera), no por priority; esfuerzo max y ultra excluido; ignora ocultos' {
+    Sembrar-Catalogos $cxCat $agCat
+    $m = Get-MejorCodex
+    Afirmar ($m.modelo -eq 'm-astra') "eligio $($m.modelo) (priority no es calidad)"
+    Afirmar ($m.esfuerzo -eq 'max' -and @($m.excluidos) -contains 'ultra') "esfuerzo $($m.esfuerzo); ultra auto-delega y no debe usarse"
+    Afirmar ($m.base -match '^documentado') "el motivo debe citar la descripcion documentada: $($m.base)"
+}
+T '3.4.0 Codex sin modelo descripto como de frontera: el primero del selector, y el motivo lo dice' {
+    Sembrar-Catalogos @((CxM 'm-a' 'Fast model' 3 @('low', 'high')), (CxM 'm-b' 'Workhorse' 1 @('medium', 'xhigh'))) $agCat
+    $m = Get-MejorCodex
+    Afirmar ($m.modelo -eq 'm-b' -and $m.esfuerzo -eq 'xhigh' -and $m.base -match 'sin modelo descripto como de frontera') "$($m.modelo) · $($m.esfuerzo) · $($m.base)"
+}
+T '3.4.0 agy: familia por rol, version mas nueva listada y esfuerzo mas alto (un modelo nuevo entra sin release)' {
+    Sembrar-Catalogos $cxCat $agCat
+    Afirmar ((Get-MejorAgy -Perfil 'razonar').modelo -eq 'gemini-5-argon-high') 'no tomo la version mas nueva de la familia'
+    Afirmar ((Get-MejorAgy -Perfil 'opus').modelo -eq 'claude-opus-5-5-high') 'opus: debe tomar el esfuerzo mas alto'
+    Afirmar ((Get-MejorAgy -Perfil 'oss').modelo -eq 'gpt-oss-120b-medium') 'oss: familia mal parseada'
+    Afirmar ((Get-MejorAgy -Perfil 'inexistente').perfil -eq 'razonar') 'un perfil desconocido debe caer en razonar'
+    $s = Split-SlugAgy 'gemini-3.8-flash-high'
+    Afirmar ($s.familia -eq 'gemini-flash' -and $s.version -eq 3.8 -and $s.esfuerzo -eq 'high') ($s | ConvertTo-Json -Compress)
+}
+T '3.4.0 cache de modelos de formato viejo se descarta (no se usan datos sin descripcion)' {
+    [IO.File]::WriteAllText((Join-Path $tmp 'modelos-codex.json'), ([pscustomobject]@{ tomado = (Get-Date).ToString('s'); lista = @($cxCat) } | ConvertTo-Json -Depth 6))
+    $env:MULTIIA_CODEX_EXE = 'C:\no-existe\codex.exe'
+    try { Afirmar ($null -eq (Get-MejorCodex)) 'uso una cache sin esquema 2' } finally { Remove-Item Env:\MULTIIA_CODEX_EXE }
+}
+T '3.4.0 inventario: cada dato etiquetado (documentado / observado / no determinable), agy sin descripcion inventada' {
+    Sembrar-Catalogos $cxCat $agCat
+    Con-Motores $mudoExe $mudoExe {
+        $inv = @(Get-InventarioModelos)
+        $a = @($inv | Where-Object { $_.motor -eq 'agy' })[0]; $c = @($inv | Where-Object { $_.modelo -eq 'm-astra' })[0]
+        Afirmar ($c.descripcion.e -eq 'documentado' -and $c.latencia_seg.e -match 'no determinable') 'Codex: etiquetas incorrectas'
+        Afirmar ($null -eq $a.descripcion.v -and $a.descripcion.e -match 'no determinable' -and $a.proveedor -eq 'Google') 'agy: no debe inventar descripcion'
+    }
+}
+function Sin-Agy([scriptblock]$b) {
+    $bk = @{ L = $env:LOCALAPPDATA; P = $env:PATH }
+    $env:LOCALAPPDATA = Join-Path $tmp 'sin-local'; $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -notmatch '\\agy\\' }) -join ';'; $env:MULTIIA_AGY_EXE = Join-Path $tmp 'no-agy.exe'
+    try { & $b } finally { $env:LOCALAPPDATA = $bk.L; $env:PATH = $bk.P; Remove-Item Env:\MULTIIA_AGY_EXE -ErrorAction SilentlyContinue }
+}
+T '3.4.0 cruce de motor: sin Codex, codigo va a Antigravity y el motivo lo explica; con -Contexto carpeta NO cruza' {
+    Sembrar-Catalogos $cxCat $agCat
+    Con-Motores $mudoExe (Join-Path $tmp 'no-codex.exe') {
+        $j = (PS1 'elegir.ps1' @('-Tarea', 'codigo', '-Forzar') | Out-String) | ConvertFrom-Json
+        Afirmar ($j.destino -eq 'agy' -and $j.esfuerzo -in 'low', 'medium', 'high' -and $j.motivo -match 'cruce de motor') "$($j.destino) $($j.modelo) $($j.esfuerzo): $($j.motivo)"
+        $j = (PS1 'elegir.ps1' @('-Tarea', 'codigo', '-Forzar', '-Contexto', 'carpeta') | Out-String) | ConvertFrom-Json
+        Afirmar ($j.destino -in 'claude', 'pendiente' -and $j.motivo -match 'no puede leer -Carpeta') "cruzo sin el contexto: $($j.destino) $($j.motivo)"
+    }
+}
+T '3.4.0 cruce de motor: sin Antigravity, texto va a Codex; con -Contexto archivo NO cruza; sin ninguno lo hace Claude' {
+    Sembrar-Catalogos $cxCat $agCat
+    Sin-Agy {
+        $env:MULTIIA_CODEX_EXE = $mudoExe
+        try {
+            $j = (PS1 'elegir.ps1' @('-Tarea', 'texto', '-Forzar') | Out-String) | ConvertFrom-Json
+            Afirmar ($j.destino -eq 'codex' -and $j.modelo -eq 'm-astra' -and $j.motivo -match 'cruce de motor') "$($j.destino) $($j.modelo): $($j.motivo)"
+            $j = (PS1 'elegir.ps1' @('-Tarea', 'texto', '-Forzar', '-Contexto', 'archivo') | Out-String) | ConvertFrom-Json
+            Afirmar ($j.destino -in 'claude', 'pendiente' -and $j.motivo -match 'no recibe -Archivo') "cruzo sin los archivos: $($j.destino) $($j.motivo)"
+            $env:MULTIIA_CODEX_EXE = Join-Path $tmp 'no-codex.exe'
+            $j = (PS1 'elegir.ps1' @('-Tarea', 'codigo', '-Forzar') | Out-String) | ConvertFrom-Json
+            Afirmar ($j.destino -in 'claude', 'pendiente' -and $j.motivo -match 'Antigravity tampoco') "$($j.destino): $($j.motivo)"
+        } finally { Remove-Item Env:\MULTIIA_CODEX_EXE -ErrorAction SilentlyContinue }
+    }
+}
+T '3.4.0 delegar pasa el contexto al router (el cruce no pierde archivos ni carpeta)' {
+    $d = Get-Content (Join-Path $sc 'delegar.ps1') -Raw
+    Afirmar ($d -match "\`$a\.Contexto = 'archivo'" -and $d -match "\`$a\.Contexto = 'carpeta'") 'delegar no pasa -Contexto a elegir'
+}
+Remove-Item (Join-Path $tmp 'modelos-codex.json'), (Join-Path $tmp 'modelos-agy.json') -ErrorAction SilentlyContinue
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""; Write-Host "Resultado: $ok ok, $mal con falla$(if ($omit) { ", $omit omitidas (solo DEV)" })" -ForegroundColor $(if ($mal) { 'Red' } else { 'Green' })
 exit $(if ($mal) { 1 } else { 0 })

@@ -1,5 +1,13 @@
 # Changelog (Community Edition)
 
+## 3.4.0
+- Router explicable con inventario dinámico de modelos: Codex y Antigravity se descubren desde sus CLIs (un modelo nuevo aparece sin actualizar el plugin) y cada dato se etiqueta como documentado, observado, estimado o no determinable.
+- Calidad Máxima elige por calidad documentada, no por costo: en Codex, el modelo que la CLI describe como de frontera con su esfuerzo máximo (`ultra` excluido porque auto-delega); en Antigravity, la versión más nueva de la familia del perfil con su mayor esfuerzo.
+- Cruce de motor: si el motor elegido no está instalado se usa el otro, siempre que no se pierda contexto (`-Carpeta` / `-Archivo`), y el motivo lo explica. Nunca para una denegación de política.
+- Revisión cruzada en Calidad Máxima con Claude Opus vía Antigravity.
+- Consola del panel: muestra el modelo pedido por ejecución, «Cambio de motor» y «Sin respaldo» con su nombre; «Modelo no verificable» sigue visible.
+- Arreglo del HooksError del panel con motores lentos al leer cupos.
+
 ## 3.3.2
 - Metricas por tarea unica: la tarjeta pasa a "Recuperacion de tareas" (recuperadas comprobables, sin resolver, "No verificable" sin evidencia). Sin cambios de router ni de Calidad Maxima.
 - Una denegacion de politica ("Escritura NO permitida") ya no dispara un cambio de motor inutil: queda registrada como `sin-respaldo`, en Codex y en Antigravity.

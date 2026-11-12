@@ -22,6 +22,9 @@ if ($Dificil) { $a.Dificil = $true }; if ($ConCupo) { $a.ConCupo = $true }; if (
 $tam = $Prompt.Length; $tamOk = $true
 foreach ($x in @($Archivo | ForEach-Object { $_ -split ',' } | Where-Object { $_ })) { $fi = Get-Item -LiteralPath $x.Trim() -ErrorAction SilentlyContinue; if ($fi -and -not $fi.PSIsContainer) { $tam += $fi.Length } else { $tamOk = $false } }
 $a.Tamano = $(if ($tamOk) { $tam } else { -1 })
+# 3.4.0: el router solo cruza de motor si el contexto viaja (agy recibe -Archivo, Codex lee -Carpeta).
+$hayArch = [bool]@($Archivo | Where-Object { $_ }).Count
+if ($hayArch -and $Carpeta) { $a.Contexto = 'ambos' } elseif ($hayArch) { $a.Contexto = 'archivo' } elseif ($Carpeta) { $a.Contexto = 'carpeta' }
 $sel = (& (Join-Path $PSScriptRoot 'elegir.ps1') @a) | ConvertFrom-Json
 . (Join-Path $PSScriptRoot '_comun.ps1')
 $Archivo = @($Archivo | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { $_.Trim() })
@@ -176,7 +179,7 @@ if ($Cruzar -or $sel.calidad -eq 'maxima') {
     # 3.3.0: si el revisor ya viene descubierto (Calidad Maxima) y es de OTRO proveedor que quien produjo, se respeta; si el respaldo cambio al ejecutor, se recalcula al mejor del otro proveedor.
     if (-not $segundo -or $segundo.destino -eq $ejecutor) {
         $mx = $null
-        if ((Get-PoliticaCalidad) -eq 'maxima' -and (Get-Config).modo -ne 'manual') { $mx = if ($ejecutor -eq 'codex') { Get-MejorAgy } else { Get-MejorCodex } }
+        if ((Get-PoliticaCalidad) -eq 'maxima' -and (Get-Config).modo -ne 'manual') { $mx = if ($ejecutor -eq 'codex') { Get-MejorAgy -Perfil 'opus' } else { Get-MejorCodex } }
         if ($ejecutor -eq 'codex') { $segundo = [pscustomobject]@{ destino = 'agy'; perfil = $(if ($mx -and $mx.modelo) { '' } else { 'razonar' }); modelo = $(if ($mx) { $mx.modelo } else { '' }); esfuerzo = 'high'; motivo = 'revision cruzada: otro proveedor' } }
         else { $segundo = [pscustomobject]@{ destino = 'codex'; perfil = ''; modelo = $(if ($mx) { $mx.modelo } else { '' }); esfuerzo = $(if ($mx -and $mx.esfuerzo) { $mx.esfuerzo } else { 'high' }); motivo = 'revision cruzada: otro proveedor (sentido inverso)' } }
     }

@@ -42,3 +42,12 @@ for (const [nombre, cols, place] of casos) for (const s of (place === 'desktop' 
   expect(JSON.stringify(all[0])).toContain(MARCA[s])
   await ui.unmount()
 })
+// 3.4.0 (HooksError «still running»): con error de lectura el panel conserva los cupos anteriores y dice su edad.
+test('error al leer cupos: se ven los datos anteriores con su edad, no se borran', async ($, on) => {
+  on('state.get', (_: any, e: any) => e.key === 'vista' ? sh('vista-2', V2) : e.key === 'latido' ? sh('latido-3', { rap: Date.now(), cupos: Date.now() - 180000, leyendo: false, err: 'la lectura de cupos superó 45 s; quedan los datos anteriores', movs: [] }) : sh('datos-8', datos))
+  const ui = await $.ui.mount({ plugin: 'multi-ia-orquestador', component: 'Pane', requestId: 'multi-ia-panel', surface: 'desktop', props: { title: 'Multi-IA', isFocused: false, bodyColumns: 46, placement: 'dock' } } as any) as any
+  const t = JSON.stringify((await ui.findAll({}) as any[])[0])
+  expect(t).toMatch(/error al leer cupos · datos de hace 3 min · reintenta solo/)
+  expect(t).toContain('Consumo de Claude')
+  await ui.unmount()
+})

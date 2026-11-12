@@ -7,22 +7,58 @@ param([switch]$Corto, [switch]$Json, [switch]$Forzar)   # -Corto: una linea por 
 
 # Cache de -Json: consultar Codex y Antigravity tarda ~11 s, asi que se reusa hasta 45 s (o hasta que se pase alguna hora de reinicio).
 $cacheArchivo = Join-Path $script:DatosDir 'limites-cache.json'
-if ($Json -and -not $Forzar -and (Test-Path -LiteralPath $cacheArchivo)) {
-    $cf = Get-Item -LiteralPath $cacheArchivo
-    if (((Get-Date) - $cf.LastWriteTime).TotalSeconds -lt 45) {
-        $txt = Get-Content -LiteralPath $cacheArchivo -Raw -Encoding UTF8
-        $vencida = $false
-        try {
-            foreach ($t in ($txt | ConvertFrom-Json).tarjetas) { foreach ($w in $t.ventanas) { if ($w.reinicia -and ([datetime]$w.reinicia).ToUniversalTime() -lt (Get-Date).ToUniversalTime()) { $vencida = $true } } }
-        } catch { $vencida = $true }
-        if (-not $vencida) { $txt.Trim(); exit 0 }
+# Devuelve la cache tal cual con su edad en segundos (cache_seg) para que el panel no la tome por recien leida.
+function Salida-Cache {
+    $edad = [int][math]::Max(0, ((Get-Date) - (Get-Item -LiteralPath $cacheArchivo).LastWriteTime).TotalSeconds)
+    $t = (Get-Content -LiteralPath $cacheArchivo -Raw -Encoding UTF8).Trim()
+    if ($t.StartsWith('{')) { '{"cache_seg":' + $edad + ',' + $t.Substring(1) } else { $t }
+}
+function Cache-Vigente {
+    param([int]$MaxSeg)
+    if (-not (Test-Path -LiteralPath $cacheArchivo)) { return $false }
+    if (((Get-Date) - (Get-Item -LiteralPath $cacheArchivo).LastWriteTime).TotalSeconds -ge $MaxSeg) { return $false }
+    try {
+        foreach ($t in ((Get-Content -LiteralPath $cacheArchivo -Raw -Encoding UTF8) | ConvertFrom-Json).tarjetas) { foreach ($w in $t.ventanas) { if ($w.reinicia -and ([datetime]$w.reinicia).ToUniversalTime() -lt (Get-Date).ToUniversalTime()) { return $false } } }
+    } catch { return $false }
+    $true
+}
+if ($Json -and -not $Forzar -and (Cache-Vigente 45)) { Salida-Cache; exit 0 }
+
+# 3.4.0 (HooksError «aborted: still running»): el panel le da 45 s a este script, pero agy podia esperar 45 s (+ cierre forzado) y Codex 40 s,
+# en serie: el motor mataba a PowerShell y se perdia TODA la lectura. En -Json las consultas en vivo comparten un presupuesto de 28 s
+# (agy hasta 18 s, cada cuenta de Codex hasta 12 s) y un solo proceso a la vez consulta en vivo (candado entre sesiones de Claude).
+$mutex = $null; $tengoCandado = $false
+if ($Json) {
+    $mutex = New-Object Threading.Mutex($false, ('Local\MultiIA-limites-' + ($script:DatosDir.ToLowerInvariant() -replace '[^a-z0-9]', '_')))
+    $tomar = { param([int]$ms) try { $mutex.WaitOne($ms) } catch { $ex = $_.Exception; while ($ex -and -not ($ex -is [Threading.AbandonedMutexException])) { $ex = $ex.InnerException }; [bool]$ex } }
+    $tengoCandado = & $tomar 0
+    if (-not $tengoCandado) {
+        # Otra lectura en vivo en curso: no se duplica la consulta; se espera a que termine (dura menos de 38 s) y se usa lo que escribio.
+        $esperaDesde = Get-Date
+        $tengoCandado = & $tomar 38000
+        $nueva = (Test-Path -LiteralPath $cacheArchivo) -and ((Get-Item -LiteralPath $cacheArchivo).LastWriteTime -ge $esperaDesde.AddSeconds(-1))
+        if ($nueva -or (-not $tengoCandado -and (Test-Path -LiteralPath $cacheArchivo))) {
+            if ($tengoCandado) { $mutex.ReleaseMutex() }
+            Salida-Cache; exit 0
+        }
     }
 }
 
 $cfg = Get-Config
-$ag = Get-CupoAgy
+$inicioLectura = Get-Date
+$restan = { [int](28 - ((Get-Date) - $inicioLectura).TotalSeconds) }
+$ag = if ($Json) { Get-CupoAgy -Segundos 18 } else { Get-CupoAgy }
+$motivoAgy = $script:MotivoCupoAgy
 $codexCupo = [ordered]@{}   # nombre de cuenta -> cupo en vivo (puede haber mas de una cuenta de Codex)
-foreach ($c in (Get-CuentasActivas $cfg 'codex')) { $codexCupo[(Get-NombreCuenta $cfg $c)] = Get-CupoCodex -CodexHome $c.home }
+$motivoCodex = @{}
+foreach ($c in (Get-CuentasActivas $cfg 'codex')) {
+    $nc = Get-NombreCuenta $cfg $c
+    if (-not $Json) { $codexCupo[$nc] = Get-CupoCodex -CodexHome $c.home; continue }
+    $r = & $restan
+    if ($r -lt 4) { $codexCupo[$nc] = $null; $motivoCodex[$nc] = 'sin tiempo en este ciclo'; continue }
+    $codexCupo[$nc] = Get-CupoCodex -CodexHome $c.home -Segundos ([math]::Min(12, $r))
+    if (-not $codexCupo[$nc]) { $motivoCodex[$nc] = $(if (Find-CodexExe) { 'no respondió' } else { 'no instalado' }) }
+}
 $msgs = Get-MensajesClaude; $uso = Get-Uso
 $filas = @(Get-CupoGeneral -Codex $codexCupo -Agy $ag)
 
@@ -31,6 +67,37 @@ if ($Json) {
     $tarjetas = @(foreach ($g in ($filas | Group-Object ia)) {
         [ordered]@{ nombre = $g.Name; ventanas = @(@($g.Group) | Sort-Object { if ($_.ventana -eq '5 h') { 0 } else { 1 } } | ForEach-Object { [ordered]@{ v = $_.ventana; usado = [int]$_.usado; reinicia = $_.reinicia; origen = $_.origen } }) }
     })
+    # 3.4.0: cada ventana leida en vivo lleva la hora de lectura (leido, UTC). Si un proveedor no respondio, se muestra su ULTIMA
+    # lectura buena con la edad a la vista (nunca como «en vivo»), solo si su ventana sigue vigente y tiene menos de 6 h. Sin eso, no se muestra.
+    $ahora = (Get-Date).ToUniversalTime()
+    foreach ($tj in $tarjetas) { foreach ($w in $tj.ventanas) { if ($w.origen -eq 'en vivo') { $w.leido = $ahora.ToString('o') } } }
+    $previa = $null
+    if (Test-Path -LiteralPath $cacheArchivo) { try { $previa = (Get-Content -LiteralPath $cacheArchivo -Raw -Encoding UTF8) | ConvertFrom-Json; $mtimePrevia = (Get-Item -LiteralPath $cacheArchivo).LastWriteTime.ToUniversalTime() } catch { $previa = $null } }
+    $respaldo = {
+        param([scriptblock]$EsDelProveedor, [string]$Motivo)
+        foreach ($pt in @($previa.tarjetas | Where-Object { $_ -and (& $EsDelProveedor $_.nombre) })) {
+            $vs = @(foreach ($w in @($pt.ventanas)) {
+                $leido = if ($w.leido) { ([datetime]$w.leido).ToUniversalTime() } else { $mtimePrevia }
+                $edadMin = ($ahora - $leido).TotalMinutes
+                $vigente = -not $w.reinicia -or ([datetime]$w.reinicia).ToUniversalTime() -gt $ahora
+                if ($vigente -and $edadMin -lt 360) {
+                    $txtEdad = if ($edadMin -lt 1) { 'menos de 1 min' } elseif ($edadMin -lt 60) { '{0} min' -f [int]$edadMin } else { '{0:N1} h' -f ($edadMin / 60) }
+                    [ordered]@{ v = $w.v; usado = [int]$w.usado; reinicia = $w.reinicia; origen = "última lectura hace $txtEdad · $Motivo"; leido = $leido.ToString('o') }
+                }
+            })
+            if ($vs.Count) { [ordered]@{ nombre = $pt.nombre; ventanas = $vs } }
+        }
+    }
+    if ($previa) {
+        if (-not @($tarjetas | Where-Object { $_.nombre -like 'Antigravity*' }) -and $motivoAgy -and $motivoAgy -ne 'no instalado') {
+            $tarjetas += @(& $respaldo { param($n) $n -like 'Antigravity*' } "agy: $motivoAgy")
+        }
+        foreach ($nc in @($motivoCodex.Keys)) {
+            if ($motivoCodex[$nc] -ne 'no instalado' -and -not @($tarjetas | Where-Object { $_.nombre -eq $nc })) {
+                $tarjetas += @(& $respaldo ([scriptblock]::Create("param(`$n) `$n -eq '$($nc -replace "'", "''")'")) "Codex: $($motivoCodex[$nc])")
+            }
+        }
+    }
     foreach ($tj in @($tarjetas | Where-Object { $_.nombre -eq 'Claude' })) {   # sin ventana de 5 h activa (inactivo desde hace horas) = 0 %
         if (-not @($tj.ventanas | Where-Object { $_.v -eq '5 h' })) { $tj.ventanas = @([ordered]@{ v = '5 h'; usado = 0; reinicia = $null; origen = 'sin ventana activa' }) + @($tj.ventanas) }
     }
@@ -43,6 +110,7 @@ if ($Json) {
         pesada = $(if ($top) { [ordered]@{ msgs = $top.msgs; ctx = [int]$top.ctx_medio } } else { $null })
     } | ConvertTo-Json -Depth 6 -Compress
     try { Set-Content -LiteralPath $cacheArchivo -Value $salidaJson -Encoding UTF8 } catch { }
+    if ($tengoCandado) { try { $mutex.ReleaseMutex() } catch { } }
     $salidaJson
     exit 0
 }

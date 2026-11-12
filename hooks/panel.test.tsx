@@ -578,3 +578,23 @@ test('Chats: muestra niveles de confianza, s/d distinto de cero, motores activos
   for (const n of [/Actualizar/, /Exportar MD/, /Exportar JSON/]) expect(await ui.find({ type: 'Button', text: n })).toBeTruthy()
   await ui.unmount()
 })
+
+test('3.4.0 consola: modelo pedido por ejecución, cambio de motor y sin respaldo con su nombre, «no verificable» visible', async ($, on) => {
+  sembrar(on, {}, {
+    modo: 'automatico', calidad: 'auto', tarjetas: [],
+    motores: [{ id: 'codex', nombre: 'Codex', disponible: true, modelo_verificado: '' }, { id: 'agy', nombre: 'Antigravity', disponible: true, modelo_verificado: '' }],
+    eventos: [
+      { f: '2026-11-12T10:00:00', t: 'inicio', d: 'codex', x: 'gpt-6-astra · max', m: 'Calidad Máxima: Codex gpt-6-astra · max', k: 'codigo', tok: 0, s: 0, i: 'ej-c1' },
+      { f: '2026-11-12T10:01:00', t: 'error', d: 'codex', x: 'gpt-6-astra · max', m: '', k: 'codigo', tok: 0, s: 60, i: 'ej-c1' },
+      { f: '2026-11-12T10:01:01', t: 'cambio-motor', d: 'agy', x: 'de codex a agy · reintento de ej-c1', m: 'codex fallo (red): agy recupera la tarea', k: 'codigo', tok: 0, s: 0, i: 'ej-c1-r' },
+      { f: '2026-11-12T10:02:00', t: 'sin-respaldo', d: 'agy', x: 'politica-denegada', m: 'no se cambia de motor', k: 'codigo', tok: 0, s: 0, i: 'ej-c2' },
+    ],
+  })
+  const ui = await $.ui.mount({ ...PANE, requestId: 'multi-ia-panel', surface: 'desktop' })
+  const alt = String(((await svgAlt(ui, /Mini consola/)) as any)?.props?.alt ?? '')
+  expect(alt).toContain('Sin respaldo')
+  expect(alt).toContain('Cambio de motor')
+  expect(alt).not.toContain('pedido politica-denegada')
+  expect(alt).toContain('Modelo no verificable')
+  await ui.unmount()
+})
