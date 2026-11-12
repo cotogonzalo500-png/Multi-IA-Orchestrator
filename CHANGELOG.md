@@ -1,5 +1,9 @@
 # Changelog (Community Edition)
 
+## 3.4.1
+- Robustez: cierre de una carrera real entre crear el proceso `agy` y asociarlo al Windows Job Object (si PowerShell moría justo ahí, `agy` quedaba huérfano; reproducida 23/25 veces matando PowerShell al instante del arranque, 0/40 con el arreglo). PowerShell entra a un Job `KILL_ON_JOB_CLOSE` antes de lanzar el hijo, que nace ya dentro; sin procesos residentes. Si la protección no puede establecerse, no se lanza `agy` y el panel usa el último cupo conocido con su edad. Nunca se mata un `agy` ajeno.
+- Pruebas de regresión y de estrés con cancelaciones en distintos momentos del arranque. Sin cambios en router, modelos ni panel.
+
 ## 3.4.0
 - Router explicable con inventario dinámico de modelos: Codex y Antigravity se descubren desde sus CLIs (un modelo nuevo aparece sin actualizar el plugin) y cada dato se etiqueta como documentado, observado, estimado o no determinable.
 - Calidad Máxima elige por calidad documentada, no por costo: en Codex, el modelo que la CLI describe como de frontera con su esfuerzo máximo (`ultra` excluido porque auto-delega); en Antigravity, la versión más nueva de la familia del perfil con su mayor esfuerzo.

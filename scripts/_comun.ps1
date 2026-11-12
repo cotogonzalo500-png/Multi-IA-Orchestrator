@@ -625,11 +625,11 @@ function Get-CostoClaude {
 # (el timeout de $.process.run del panel), Windows cierra el handle y termina el agy hijo en vez de dejarlo huerfano gastando cupo.
 function New-JobKill($Proceso, [switch]$MatarAlCerrar) {
     try {
-        if (-not ('MultiIA.JobKill2' -as [type])) {
+        if (-not ('MultiIA.JobKill3' -as [type])) {
             Add-Type -ErrorAction Stop -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
 namespace MultiIA {
-  public static class JobKill2 {
+  public static class JobKill3 {
     [StructLayout(LayoutKind.Sequential)] struct Basica { public long a; public long b; public uint Flags; public UIntPtr c; public UIntPtr d; public uint e; public UIntPtr f; public uint g; public uint h; }
     [StructLayout(LayoutKind.Sequential)] struct Io { public ulong a, b, c, d, e, f; }
     [StructLayout(LayoutKind.Sequential)] struct Extendida { public Basica B; public Io I; public UIntPtr a; public UIntPtr b; public UIntPtr c; public UIntPtr d; }
@@ -648,6 +648,20 @@ namespace MultiIA {
       if (!AssignProcessToJobObject(j, proceso)) { CloseHandle(j); return IntPtr.Zero; }
       return j;
     }
+    // 3.4.1: el propio PowerShell entra a un Job KILL_ON_JOB_CLOSE ANTES de lanzar hijos. Un hijo nace ya dentro del Job (herencia atomica del kernel),
+    // asi que no hay hueco entre CreateProcess y AssignProcessToJobObject. El handle NO se cierra nunca: al morir este proceso (por kill, timeout del panel
+    // o cierre normal) Windows lo cierra y termina a todos los descendientes. Devuelve 0 si quedo protegido, o el codigo Win32 del fallo.
+    static IntPtr propio = IntPtr.Zero;
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    public static int ProtegerPropio() {
+      if (propio != IntPtr.Zero) return 0;
+      IntPtr j = CreateJobObject(IntPtr.Zero, null);
+      if (j == IntPtr.Zero) return Marshal.GetLastWin32Error();
+      Extendida x = new Extendida(); x.B.Flags = 0x2000;
+      if (!SetInformationJobObject(j, 9, ref x, (uint)Marshal.SizeOf(typeof(Extendida)))) { int e = Marshal.GetLastWin32Error(); CloseHandle(j); return e; }
+      if (!AssignProcessToJobObject(j, GetCurrentProcess())) { int e = Marshal.GetLastWin32Error(); CloseHandle(j); return e; }
+      propio = j; return 0;
+    }
     public static void Terminar(IntPtr j) { TerminateJobObject(j, 1); }
     public static void Cerrar(IntPtr j) { CloseHandle(j); }
   }
@@ -655,14 +669,14 @@ namespace MultiIA {
 '@
         }
         if ($null -eq $Proceso) { return $null }   # 3.4.0: llamada de preparacion (solo compila el tipo)
-        $j = [MultiIA.JobKill2]::Crear($Proceso.Handle, [bool]$MatarAlCerrar)
+        $j = [MultiIA.JobKill3]::Crear($Proceso.Handle, [bool]$MatarAlCerrar)
         if ($j -eq [IntPtr]::Zero) { return $null }
         return $j
     } catch { return $null }
 }
 function Stop-JobKill($Job, [bool]$Matar) {
     if ($null -eq $Job) { return }
-    try { if ($Matar) { [MultiIA.JobKill2]::Terminar($Job) }; [MultiIA.JobKill2]::Cerrar($Job) } catch { }
+    try { if ($Matar) { [MultiIA.JobKill3]::Terminar($Job) }; [MultiIA.JobKill3]::Cerrar($Job) } catch { }
 }
 
 # Ejecuta un .exe con LIMITE de tiempo (lo mata si no termina) y devuelve @{ salida; error; codigo }, o $null si se paso del tiempo.
@@ -679,9 +693,16 @@ function Invoke-ConTimeout {
     # 3.4.0: el tipo del Job Object se compila ANTES de lanzar el proceso. Antes Add-Type (1-2 s bajo carga) corria con el hijo ya vivo
     # y fuera del Job: si el panel mataba a PowerShell en ese hueco, agy/codex quedaba huerfano.
     $null = New-JobKill $null
+    # 3.4.1: con -MatarAlCerrar, PowerShell se mete a si mismo en un Job KILL_ON_CLOSE antes de crear el hijo (el hijo hereda el Job al nacer: sin hueco).
+    # Si no se puede (otro Job que no anida), se avisa y NO se lanza: preferimos 'sin datos' (con respaldo) a un agy huerfano gastando cupo.
+    if ($MatarAlCerrar) {
+        $errJ = -1; try { $errJ = [MultiIA.JobKill3]::ProtegerPropio() } catch { }
+        if ($errJ -ne 0) { return @{ salida = ''; error = "sin proteccion de Job Object (codigo $errJ): no se lanza $([IO.Path]::GetFileName($Exe))"; codigo = 126; timeout = $false; arranque = $false } }
+    }
     # 2.3.8 (Codex #4): un ejecutable que no arranca (no es una app valida, sin permiso, borrado) NO debe lanzar una excepcion cruda: se devuelve un resultado clasificable (codigo 126, arranque=$false).
     try { $p = [Diagnostics.Process]::Start($psi) } catch { return @{ salida = ''; error = "no arranca: $($_.Exception.Message)"; codigo = 126; timeout = $false; arranque = $false } }
     $job = New-JobKill $p -MatarAlCerrar:$MatarAlCerrar   # 2.3.10 (Codex): el proceso y todo lo que lance quedan en un Job Object: se cierra el arbol aunque el intermedio ya haya muerto
+    try {   # 3.4.1: si cortan a este PowerShell con gracia (Ctrl+C, StopProcessing) el finally cierra el arbol; el kill duro lo cubre el Job propio
     try { $p.StandardInput.Close() } catch { }  # 2.0: cerrar stdin para que codex/agy no esperen entrada (cuelgue bajo Start-Job)
     $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync()
     if (-not $p.WaitForExit($Segundos * 1000)) {
@@ -693,7 +714,7 @@ function Invoke-ConTimeout {
             try { $p.Kill() } catch { }
             try { $terminado = $p.WaitForExit(5000) } catch { $terminado = $p.HasExited }
         }
-        Stop-JobKill $job $true
+        Stop-JobKill $job $true; $job = $null   # 3.4.1: handle ya cerrado: el finally no debe cerrarlo otra vez
         if (-not $terminado) { try { Write-Warning "Invoke-ConTimeout: el proceso $($p.Id) ($([IO.Path]::GetFileName($Exe))) no termino tras el cierre forzado" } catch { } }
         if ($Duro) { return @{ salida = $(if ($o.IsCompleted) { $o.Result } else { '' }); error = $(if ($e.IsCompleted) { $e.Result } else { '' }); codigo = 124; timeout = $true; terminado = $terminado } }
         return $null
@@ -712,6 +733,9 @@ function Invoke-ConTimeout {
     }
     Stop-JobKill $job $false
     @{ salida = $(if ($o.IsCompleted) { $o.Result } else { '' }); error = $(if ($e.IsCompleted) { $e.Result } else { '' }); codigo = $p.ExitCode; timeout = $false }
+    } finally {
+        if ($MatarAlCerrar -and -not $p.HasExited) { try { & taskkill.exe /T /F /PID $p.Id *> $null } catch { }; try { $p.Kill() } catch { }; Stop-JobKill $job $true }
+    }
 }
 
 # Cupo real de Antigravity: el comando oficial `agy -p "/usage"` (no toca credenciales). Devuelve objetos grupo/etiqueta/restante/reinicia.

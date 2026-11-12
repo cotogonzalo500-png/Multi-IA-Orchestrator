@@ -376,6 +376,36 @@ T 'si matan solo a PowerShell (timeout del panel) no queda agy huerfano; el cand
         Afirmar ($sw.Elapsed.TotalSeconds -lt 30) "espero al candado abandonado ($([int]$sw.Elapsed.TotalSeconds) s)"
     }
 }
+# 3.4.1: carrera Process.Start -> AssignProcessToJobObject. Reproducida (23/25 huerfanos en 3.4.0) matando a PowerShell en el instante en que aparece el hijo.
+function Test-CancelacionAgy([int]$RetardoMs, [switch]$Instante) {
+    $p = Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $sc 'limites.ps1')`" -Json -Forzar" -WindowStyle Hidden -PassThru
+    if ($Instante) { $sw = [Diagnostics.Stopwatch]::StartNew(); while (-not (Get-Process motor-lento -ErrorAction SilentlyContinue) -and $sw.Elapsed.TotalSeconds -lt 20) { } }   # espera activa
+    else { Start-Sleep -Milliseconds $RetardoMs }
+    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 1500
+    $v = @(Get-Process motor-lento -ErrorAction SilentlyContinue)
+    if ($v.Count) { $v | Stop-Process -Force -ErrorAction SilentlyContinue }
+    return $v.Count
+}
+T '3.4.1 regresion: cancelar PowerShell EN EL INSTANTE en que arranca agy (6 veces) no deja huerfanos' {
+    Con-Motores $lentoExe $mudoExe {
+        $h = 0; 1..6 | ForEach-Object { $h += Test-CancelacionAgy 0 -Instante }
+        Afirmar ($h -eq 0) "$h huerfanos en 6 cancelaciones al instante del arranque"
+    }
+}
+T '3.4.1 estres: cancelaciones a 0/150/400/900/1800/3000 ms del inicio (antes, durante y despues de compilar el Job Object) no dejan huerfanos' {
+    Con-Motores $lentoExe $mudoExe {
+        $h = 0; foreach ($ms in 0, 150, 400, 900, 1800, 3000) { $h += Test-CancelacionAgy $ms }
+        Afirmar ($h -eq 0) "$h huerfanos en cancelaciones escalonadas"
+    }
+}
+T '3.4.1: Invoke-ConTimeout -MatarAlCerrar sigue devolviendo la salida y el codigo (lectura de cupos intacta)' {
+    # en un PowerShell aparte: -MatarAlCerrar mete a ESE proceso en un Job y no debe tocar al ejecutor de pruebas
+    $cmd = ". '$(Join-Path $sc '_comun.ps1')'; `$r = Invoke-ConTimeout 'cmd.exe' @('/c','echo hola') 20 -MatarAlCerrar; `$r2 = Invoke-ConTimeout 'cmd.exe' @('/c','ping -n 30 127.0.0.1 >nul') 2 -MatarAlCerrar -Duro; 'A:' + (`$r.salida.Trim()) + ':' + `$r.codigo; 'B:' + `$r2.timeout"
+    $sal = (& powershell -NoProfile -ExecutionPolicy Bypass -Command $cmd | Out-String)
+    Afirmar ($sal -match 'A:hola:0') "salida: $sal"
+    Afirmar ($sal -match 'B:True') "no vencio el timeout: $sal"
+}
 T 'la cache servida informa su edad (cache_seg) para que el panel no la tome por recien leida' {
     [IO.File]::WriteAllText((Join-Path $tmp 'limites-cache.json'), $cacheBuena)
     $j = (PS1 'limites.ps1' @('-Json') | Out-String) | ConvertFrom-Json
@@ -2227,7 +2257,8 @@ T '3.3.1 metricas: los KPI no suman proveedores, muestran terminadas/fallidas/re
     $r = Get-Content (Join-Path (Split-Path $sc -Parent) 'hooks\register.tsx') -Raw -Encoding UTF8
     Afirmar ($r -cnotmatch "r: 'Tokens totales'") 'el KPI global no puede llamarse Tokens totales (sumaba Claude + Codex + Antigravity)'
     Afirmar ($r -match "r: 'Consumo de Claude'" -and $r -match "r: 'Delegaciones terminadas'" -and $r -match "'Recuperación de tareas'" -and $r -match "r: 'Ahorro por chat', c: T\.ahorro, ic: 'moneda'") 'faltan los cuatro KPI de 3.3.1'
-    Afirmar ($r -match "const VERSION = '3\.4\.0'") 'VERSION del panel desalineada (debe coincidir con plugin.json)'
+    $vpj = (Get-Content (Join-Path (Split-Path $sc -Parent) '.claude-plugin\plugin.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    Afirmar ($r -match ("const VERSION = '" + [regex]::Escape($vpj) + "'")) 'VERSION del panel desalineada (debe coincidir con plugin.json)'
     $c = Get-Content (Join-Path $sc 'chats.ps1') -Raw -Encoding UTF8
     Afirmar ($c -match "total = \[ordered\]@\{ valor = \`$null; nivel = 'NO DISPONIBLE'") 'chats.ps1 no debe producir un total entre proveedores'
 }
