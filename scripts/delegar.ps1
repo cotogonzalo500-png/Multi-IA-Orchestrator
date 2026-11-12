@@ -110,7 +110,12 @@ Add-Decision -Id $idEj -Tarea $Tarea -Destino $sel.destino -Cuenta $sel.cuenta -
 if ($global:MIA_Cambios) { $cm = $global:MIA_Cambios; Add-Evento -Tipo 'cambios' -Destino $sel.destino -Detalle ("{0} creados · {1} modificados · {2} borrados · checkpoint {3}" -f @($cm.creados).Count, @($cm.modificados).Count, @($cm.borrados).Count, $(if ($cm.checkpoint) { 'si' } else { 'no' })) -Motivo ([string]$cm.carpeta) -Tarea $Tarea -Id $idEj }   # 3.3.0: registro de cambios reales de la escritura delegada
 
 # ---- CAMBIO DE MOTOR: si el elegido fallo, UN reintento con el otro proveedor (misma tarea, nuevo ID enlazado "<id>-r"; no se duplica: el primero queda como error).
-if ($codigo -ne 0 -and $codigo -ne 2 -and -not $Critico -and -not $Cruzar -and -not $env:MULTIIA_SIN_RESPALDO) {
+if ($codigo -ne 0 -and $codigo -ne 2 -and $causa1 -and $causa1.clase -eq 'politica-denegada') {
+    # 3.3.2: denegacion de politica: sin cambio de motor, pero el motivo queda REGISTRADO (antes solo se imprimia o no quedaba nada)
+    Write-Output "[sin respaldo: la guardia de Multi-IA denegó la escritura; cambiar de motor no la resuelve]"
+    Add-Evento -Tipo 'sin-respaldo' -Destino $sel.destino -Detalle 'politica-denegada' -Motivo "no se cambia de motor: $($causa1.causa)" -Tarea $Tarea -Id $idEj -Causa $causa1
+}
+elseif ($codigo -ne 0 -and $codigo -ne 2 -and -not $Critico -and -not $Cruzar -and -not $env:MULTIIA_SIN_RESPALDO) {
     $altD = if ($sel.destino -eq 'codex') { 'agy' } else { 'codex' }
     $ctaAlt = @(Get-CuentasActivas (Get-Config) $altD)[0]
     $altInst = if ($altD -eq 'agy') { [bool](Find-AgyExe) } else { [bool](Find-CodexExe) }

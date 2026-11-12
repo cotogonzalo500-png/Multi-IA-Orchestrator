@@ -33,18 +33,27 @@ function prepararTarjetas($: any, on: any) {
   return textoDe
 }
 
-test('el panel dibuja una tarjeta por IA con su porcentaje', async ($, on) => {
-  const textoDe = prepararTarjetas($, on)
-  expect(await textoDe('motores', 'Text', /Codex/)).toContain('Codex')
-  expect(await textoDe('motores', 'Text', /85%/)).toContain('85%')
+// 3.3.2: un montaje por prueba (con varios seguidos pasaban de 5 s con la maquina cargada: timeout intermitente). Mismas afirmaciones.
+test('el panel dibuja una tarjeta por IA: Codex', async ($, on) => {
+  expect(await prepararTarjetas($, on)('motores', 'Text', /Codex/)).toContain('Codex')
 })
-test('el panel dibuja una tarjeta por IA con su porcentaje (2)', async ($, on) => {
-  const textoDe = prepararTarjetas($, on)
-  expect(await textoDe('motores', 'Text', /SESIÓN 5 H/)).toContain('SESIÓN 5 H')
-  expect(await textoDe('motores', 'Text', /SEMANAL 7 DÍAS/)).toContain('SEMANAL')
-  expect(await textoDe('motores', 'Text', /% libre/)).toContain('libre')
-  expect(await textoDe('motores', 'Text', /Antigravity/)).toContain('Antigravity')
-  expect(await textoDe('motores', 'Button', /barras/)).toBeTruthy()
+test('el panel dibuja una tarjeta por IA: porcentaje 85%', async ($, on) => {
+  expect(await prepararTarjetas($, on)('motores', 'Text', /85%/)).toContain('85%')
+})
+test('el panel dibuja una tarjeta por IA: SESIÓN 5 H', async ($, on) => {
+  expect(await prepararTarjetas($, on)('motores', 'Text', /SESIÓN 5 H/)).toContain('SESIÓN 5 H')
+})
+test('el panel dibuja una tarjeta por IA: SEMANAL 7 DÍAS', async ($, on) => {
+  expect(await prepararTarjetas($, on)('motores', 'Text', /SEMANAL 7 DÍAS/)).toContain('SEMANAL')
+})
+test('el panel dibuja una tarjeta por IA: % libre', async ($, on) => {
+  expect(await prepararTarjetas($, on)('motores', 'Text', /% libre/)).toContain('libre')
+})
+test('el panel dibuja una tarjeta por IA: Antigravity', async ($, on) => {
+  expect(await prepararTarjetas($, on)('motores', 'Text', /Antigravity/)).toContain('Antigravity')
+})
+test('el panel dibuja una tarjeta por IA: boton barras', async ($, on) => {
+  expect(await prepararTarjetas($, on)('motores', 'Button', /barras/)).toBeTruthy()
 })
 
 test('el panel muestra señal de vida, consumo, sistema y actividad por sección', async ($, on) => {
@@ -289,6 +298,24 @@ test('Centro de control: consumo muestra la eficiencia de orquestación A-G', as
   expect((await svgAlt(ui, /Eficiencia, últimos 30 días/))).toBeTruthy()
   expect((await ui.find({ type: 'Text', text: /50 respuestas directas justificadas/ }))?.text).toContain('7 tareas')
   await ui.unmount()
+})
+
+test('3.3.2 tarjeta «Recuperación de tareas»: cuenta tareas únicas y separa las sin resolver; sin detalle dice «No verificable»', async ($, on) => {
+  const efBase = { dias: 30, exitosas: 61, exitosas_con_tokens: 59, directas_justificadas: 5, oportunidades_perdidas: 0, fallidas: 7, fallas_recuperadas: 8, tokens_delegados: 1, sobrecosto_por_delegacion: 400, ahorro_neto_estimado: 1, elegibles: 70, tasa_delegacion_util: 84, recomendaciones: [], metodologia: 'estimado' }
+  sembrar(on, { seccion: 'resumen' }, { ...DATOS_V2, ef: { ...efBase, tareas_recuperadas: 8, tareas_sin_resolver: 2, tareas_sin_resolver_historicas: 1, tareas_recuperacion_no_verificable: 0 } })
+  const ui = await $.ui.mount({ ...CENTRO, surface: 'desktop' })
+  const a = await svgAlt(ui, /Recuperación de tareas 8 \(2 sin resolver \(1 histórica\)/)
+  expect(a).toBeTruthy()
+  await ui.unmount()
+  sembrar(on, { seccion: 'resumen' }, { ...DATOS_V2, ef: efBase })
+  const ui2 = await $.ui.mount({ ...CENTRO, surface: 'desktop' })
+  expect(await svgAlt(ui2, /Recuperación de tareas No verificable/)).toBeTruthy()
+  await ui2.unmount()
+  // P3: con tareas no verificables, ese contador va PRIMERO (el recorte del panel compacto cortaba el final y lo ocultaba)
+  sembrar(on, { seccion: 'resumen' }, { ...DATOS_V2, ef: { ...efBase, tareas_recuperadas: 3, tareas_sin_resolver: 12, tareas_sin_resolver_historicas: 12, tareas_recuperacion_no_verificable: 2 } })
+  const ui3 = await $.ui.mount({ ...CENTRO, surface: 'desktop' })
+  expect(await svgAlt(ui3, /Recuperación de tareas 3 \(2 no verificable · 12 sin resolver/)).toBeTruthy()
+  await ui3.unmount()
 })
 
 // ---------- V3: historial (búsqueda, filtros, orden, detalle) ----------

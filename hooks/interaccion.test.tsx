@@ -262,7 +262,7 @@ test('Las 4 tarjetas 3.3.1: consumo de Claude, delegaciones terminadas, fallas y
   vistaYDatos(on, {}, { chats: chatsConDatos('chat-B') })
   const ui = await montar($)
   const g = await altKpi(ui)
-  const orden = ['Consumo de Claude', 'Delegaciones terminadas', 'Fallas y recuperadas', 'Ahorro por chat'].map(k => g.indexOf(k))
+  const orden = ['Consumo de Claude', 'Delegaciones terminadas', 'Recuperación de tareas', 'Ahorro por chat'].map(k => g.indexOf(k))
   expect(orden.every(x => x >= 0)).toBe(true)
   expect([...orden].sort((a, b) => a - b)).toEqual(orden)
   expect(g).not.toMatch(/Tokens totales|Tokens ahorrados|Costo estimado/)

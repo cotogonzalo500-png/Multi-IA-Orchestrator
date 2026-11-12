@@ -1,5 +1,10 @@
 # Changelog (Community Edition)
 
+## 3.3.2
+- Metricas por tarea unica: la tarjeta pasa a "Recuperacion de tareas" (recuperadas comprobables, sin resolver, "No verificable" sin evidencia). Sin cambios de router ni de Calidad Maxima.
+- Una denegacion de politica ("Escritura NO permitida") ya no dispara un cambio de motor inutil: queda registrada como `sin-respaldo`, en Codex y en Antigravity.
+- El resumen de eficiencia ya no afirma que el respaldo funciona sin evidencia.
+- Pruebas del ZIP publico estabilizadas sin debilitar la deteccion.
 
 ## 3.3.1
 - Métricas honestas: el panel ya no suma consumo de Claude, Codex y Antigravity. KPI: Consumo de Claude (con Codex y Antigravity separados, «no se suman»), Delegaciones terminadas, Fallas y recuperadas, Ahorro por chat (estimación exploratoria o «No determinable»).

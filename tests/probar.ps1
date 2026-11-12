@@ -473,6 +473,51 @@ T 'eficiencia.ps1: separa exitosas, directas, perdidas y fallidas; el ahorro es 
     Afirmar ($j.elegibles -eq 4 -and $j.tasa_delegacion_util -eq 50) "tasa $($j.tasa_delegacion_util) / $($j.elegibles)"
     Afirmar ($j.metodologia -match 'estimado') 'falta metodologia'
 }
+T '3.3.2 eficiencia: recuperacion por TAREA UNICA (comprobable / no verificable / sin resolver / pruebas anotadas) sin tocar los registros' {
+    $arch = Join-Path $tmp 'eventos.jsonl'; Remove-Item $arch, (Join-Path $tmp 'eventos-hist.jsonl'), (Join-Path $tmp 'decisiones.jsonl'), (Join-Path $tmp 'anotaciones-auditoria.json') -ErrorAction SilentlyContinue
+    Add-Evento -Tipo 'error' -Destino 'agy' -Tarea 'codigo' -Id 'u-1'; Add-Evento -Tipo 'fin' -Destino 'codex' -Tarea 'codigo' -Id 'u-1-r' -Tok 900   # recuperada con decision ok
+    Add-Evento -Tipo 'error' -Destino 'agy' -Tarea 'codigo' -Id 'u-2'; Add-Evento -Tipo 'fin' -Destino 'codex' -Tarea 'codigo' -Id 'u-2-r' -Tok 0     # fin sin tokens: no verificable
+    Add-Evento -Tipo 'error' -Destino 'codex' -Tarea 'codigo' -Id 'u-3'; Add-Evento -Tipo 'error' -Destino 'agy' -Tarea 'codigo' -Id 'u-3-r'         # 2 eventos, 1 tarea sin resolver
+    Add-Evento -Tipo 'error' -Destino 'codex' -Tarea 'codigo' -Id 'u-4'                                                                               # prueba anotada
+    Add-Decision -Id 'u-1-r' -Tarea 'codigo' -Destino 'codex' -Resultado 'ok' -Tok 900
+    Add-Decision -Id 'u-2-r' -Tarea 'codigo' -Destino 'codex' -Resultado 'ok' -Tok 0
+    '{"u-4":{"clase":"prueba","nota":"x"}}' | Set-Content (Join-Path $tmp 'anotaciones-auditoria.json') -Encoding UTF8
+    $antes = (Get-Content $arch -Raw).Length
+    $j = (PS1 'eficiencia.ps1' @('-Json') | Out-String) | ConvertFrom-Json
+    Afirmar ($j.tareas_con_falla_inicial -eq 3) "tareas con falla: $($j.tareas_con_falla_inicial)"
+    Afirmar ($j.tareas_recuperadas -eq 1) "recuperadas: $($j.tareas_recuperadas)"
+    Afirmar ($j.tareas_recuperacion_no_verificable -eq 1) "no verificables: $($j.tareas_recuperacion_no_verificable)"
+    Afirmar ($j.tareas_sin_resolver -eq 1 -and $j.tareas_de_prueba_excluidas -eq 1) "sin resolver=$($j.tareas_sin_resolver) pruebas=$($j.tareas_de_prueba_excluidas)"
+    Afirmar ((Get-Content $arch -Raw).Length -eq $antes) 'eficiencia modifico el registro'
+    Remove-Item (Join-Path $tmp 'anotaciones-auditoria.json'), (Join-Path $tmp 'decisiones.jsonl') -ErrorAction SilentlyContinue
+}
+T '3.3.2 Get-ClaseError: la guardia de escritura es politica-denegada (no reintentable) aunque la consola parta el mensaje' {
+    . (Join-Path $sc '_comun.ps1')
+    foreach ($x in @("Escritura NO permitida en 'C:\Temp' (raiz de disco)", "Escritura NO`r`npermitida en 'C:\Temp'")) {
+        $r = Get-ClaseError -Texto $x -Salida 1
+        Afirmar ($r.clase -eq 'politica-denegada' -and -not $r.reintentable) "'$x' dio '$($r.clase)'"
+    }
+    $d = Get-Content (Join-Path $sc 'delegar.ps1') -Raw
+    Afirmar ($d -match "politica-denegada" -and $d -match "Tipo 'sin-respaldo'") 'delegar.ps1 debe saltear el fallback ante politica-denegada y registrar sin-respaldo'
+}
+T '3.3.2 P1: la denegacion de carpeta de agy deja la causa politica-denegada (el router no cambia de motor) y Codex tambien' {
+    foreach ($m in @('delegar-agy.ps1', 'delegar-codex.ps1')) {
+        $cmd = "`$env:MULTIIA_ORIGEN='test'; `$env:MULTIIA_DATOS='$tmp'; . '$sc\_comun.ps1'; & '$sc\$m' -Prompt 'x' -Escribir -Carpeta `$env:TEMP *> `$null; Write-Output ('CLASE=' + `$global:MIA_Causa.clase + ';REINT=' + `$global:MIA_Causa.reintentable)"
+        $o = (& powershell -NoProfile -ExecutionPolicy Bypass -Command $cmd | Out-String) -replace '\s+', ''
+        Afirmar ($o -match 'CLASE=politica-denegada;REINT=False') "$m no dejo politica-denegada/no reintentable: $o"
+    }
+}
+T '3.3.2 P2: una tarea que cambio de motor sin evidencia NO se declara recuperada ni dice que el respaldo funciona' {
+    Remove-Item (Join-Path $tmp 'eventos.jsonl'), (Join-Path $tmp 'eventos-hist.jsonl'), (Join-Path $tmp 'decisiones.jsonl'), (Join-Path $tmp 'anotaciones-auditoria.json') -ErrorAction SilentlyContinue
+    Add-Evento -Tipo 'error' -Destino 'agy' -Tarea 'codigo' -Id 'v-1'; Add-Evento -Tipo 'fin' -Destino 'codex' -Tarea 'codigo' -Id 'v-1-r' -Tok 0   # sin tokens
+    Add-Evento -Tipo 'error' -Destino 'agy' -Tarea 'codigo' -Id 'v-2'; Add-Evento -Tipo 'fin' -Destino 'codex' -Tarea 'codigo' -Id 'v-2-r' -Tok 500  # sin decision ok
+    Add-Decision -Id 'v-1-r' -Tarea 'codigo' -Destino 'codex' -Resultado 'ok' -Tok 0
+    $j = (PS1 'eficiencia.ps1' @('-Json') | Out-String) | ConvertFrom-Json
+    Afirmar ($j.tareas_recuperadas -eq 0 -and $j.tareas_recuperacion_no_verificable -eq 2) "recuperadas=$($j.tareas_recuperadas) noVer=$($j.tareas_recuperacion_no_verificable)"
+    $txt = ($j.recomendaciones -join ' ')
+    Afirmar ($txt -notmatch 'esta funcionando' -and $txt -match 'sin evidencia') "recomendaciones: $txt"
+    Remove-Item (Join-Path $tmp 'decisiones.jsonl') -ErrorAction SilentlyContinue
+}
 
 Write-Host "== v1.8.0: correcciones de la auditoria de Codex"
 if (-not (Get-Command LimpiarDatos -ErrorAction SilentlyContinue)) { function LimpiarDatos { Get-ChildItem $tmp -File | Where-Object { $_.Name -match '\.jsonl$' } | Remove-Item -Force -ErrorAction SilentlyContinue } }
@@ -1452,17 +1497,18 @@ T 'config.ps1 -Recuperar: avisa si esta corrupta, la repone con los valores por 
     $cj = Join-Path $tmp 'config.json'; $cp = "$cj.corrupta"
     Remove-Item $cj, $cp -Force -ErrorAction SilentlyContinue
     Set-Content $cj '{ roto' -Encoding UTF8
-    $v = (PS1 'config.ps1' @('-Ver') | Out-String)
-    Afirmar ($v -match 'CORRUPTA' -and $v -match 'Recuperar') "-Ver no avisa: $v"
+    # 3.3.2: la consola parte la salida de los procesos hijos por ancho (incluso dentro de una palabra): se compara sin espacios ni saltos.
+    $v = (PS1 'config.ps1' @('-Ver') | Out-String); $vc = $v -replace '\s+', ''
+    Afirmar ($vc -match 'CORRUPTA' -and $vc -match 'Recuperar') "-Ver no avisa: $v"
     Afirmar (Test-Path $cj) '-Ver no debe tocar el archivo'
     $r = (PS1 'config.ps1' @('-Recuperar') | Out-String)
-    Afirmar ($r -match 'recuperada') "-Recuperar: $r"
+    Afirmar (($r -replace '\s+', '') -match 'recuperada') "-Recuperar: $r"
     $c = Get-Content $cj -Raw | ConvertFrom-Json
     Afirmar ($c.modo -eq 'automatico' -and @($c.cuentas).Count -ge 1) 'config repuesta invalida'
     Afirmar ((Get-Content $cp -Raw) -match 'roto') 'se perdio el original'
     Afirmar ($null -ne (Get-Config) -and $script:ConfigCorrupta -eq $false) 'sigue corrupta tras recuperar'
     $r2 = (PS1 'config.ps1' @('-Recuperar') | Out-String)
-    Afirmar ($r2 -match 'sana') "sana: $r2"
+    Afirmar (($r2 -replace '\s+', '') -match 'sana') "sana: $r2"
     Remove-Item $cj, $cp -Force -ErrorAction SilentlyContinue
 }
 T 'panel: muestra el aviso de config corrupta, no lo muestra con config sana y no tira errores con uso vacio' {
@@ -2073,7 +2119,7 @@ T '3.2.0 Codex escritura: delegar-codex.ps1 pasa workspace-write solo con -Escri
     Afirmar ($d -match 'if \(\$Escribir\) \{ \$p\.Escribir = \$true \}' -and $d -match '\$q\.Escribir = \$true') 'delegar.ps1 no propaga -Escribir (causa raiz del solo-lectura)'
     $ErrorActionPreference = 'Continue'
     try { $o = (PS1 'delegar-codex.ps1' @('-Prompt', 'x', '-Escribir', '-Carpeta', $env:TEMP) | Out-String); $cod = $LASTEXITCODE } finally { $ErrorActionPreference = 'Stop' }
-    Afirmar ($cod -ne 0 -and $o -match 'NO permitida|sesi') "escribir en TEMP debia rechazarse: $o"
+    Afirmar ($cod -ne 0 -and $o -match 'NO\s+permitida|sesi') "escribir en TEMP debia rechazarse: $o"
 }
 T '3.3.0 agy escritura: arranca en la carpeta autorizada, verifica por su cuenta y delegar.ps1 pasa modelo/escritura' {
     $s = Get-Content (Join-Path $sc 'delegar-agy.ps1') -Raw
@@ -2102,8 +2148,8 @@ T '3.3.0 auditoria cruzada: sin cache con -Escribir, sin fragmentar con -Escribi
 T '3.3.1 metricas: los KPI no suman proveedores, muestran terminadas/fallidas/recuperadas y el ahorro dice No determinable sin base; chats.ps1 mantiene total NO DISPONIBLE' {
     $r = Get-Content (Join-Path (Split-Path $sc -Parent) 'hooks\register.tsx') -Raw -Encoding UTF8
     Afirmar ($r -cnotmatch "r: 'Tokens totales'") 'el KPI global no puede llamarse Tokens totales (sumaba Claude + Codex + Antigravity)'
-    Afirmar ($r -match "r: 'Consumo de Claude'" -and $r -match "r: 'Delegaciones terminadas'" -and $r -match "r: 'Fallas y recuperadas'" -and $r -match "r: 'Ahorro por chat', c: T\.ahorro, ic: 'moneda'") 'faltan los cuatro KPI de 3.3.1'
-    Afirmar ($r -match "const VERSION = '3\.3\.1'") 'VERSION del panel desalineada'
+    Afirmar ($r -match "r: 'Consumo de Claude'" -and $r -match "r: 'Delegaciones terminadas'" -and $r -match "'Recuperación de tareas'" -and $r -match "r: 'Ahorro por chat', c: T\.ahorro, ic: 'moneda'") 'faltan los cuatro KPI de 3.3.1'
+    Afirmar ($r -match "const VERSION = '3\.3\.2'") 'VERSION del panel desalineada (debe coincidir con plugin.json)'
     $c = Get-Content (Join-Path $sc 'chats.ps1') -Raw -Encoding UTF8
     Afirmar ($c -match "total = \[ordered\]@\{ valor = \`$null; nivel = 'NO DISPONIBLE'") 'chats.ps1 no debe producir un total entre proveedores'
 }

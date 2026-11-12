@@ -345,6 +345,7 @@ function Get-AyudaClase([string]$Clase, [string]$Motor = '') {
         'red'                  { 'Fallo de conexion. Revisa tu internet/proxy/VPN y reintenta; si persiste, corre /configurar para ver el estado de cada motor.' }
         'timeout'              { 'El motor tardo demasiado. Reintenta con una tarea mas chica o calidad economica.' }
         'herramienta-denegada' { 'El motor no tuvo permiso para una accion (archivos/comandos). Revisa la carpeta indicada en -Carpeta y los permisos de Windows sobre ella.' }
+        'politica-denegada'    { 'La guardia de Multi-IA no permite escribir en esa carpeta (raiz, perfil, TEMP, Windows, Program Files). Elegi una carpeta de proyecto con -Carpeta; no se cambia de motor porque ninguno puede escribir ahi.' }
         'modelo-invalido'      { 'El modelo pedido no existe en tu cuenta. Usa /modo para volver a Automatico.' }
         'respuesta-vacia'      { 'El motor no devolvio texto. Reintenta; si se repite, verifica que hayas iniciado sesion (/configurar probar) o usa /modo para pasar el trabajo al otro motor.' }
         'truncado'             { 'La respuesta quedo cortada. Pedi una tarea mas chica o dividila en partes.' }
@@ -371,6 +372,8 @@ function Get-ClaseError {
     elseif ($t -match '(?i)No encontr. (codex|agy)|agy no est. instalado|no se encontr. el ejecutable') { $clase = 'no-instalado'; $reint = $false }   # 2.3.7: motor ausente (antes caia en 'desconocido')
     elseif ($t -match '(?i)no arranca:|no es una aplicaci.n v.lida|not a valid win32|cannot be run') { $clase = 'no-arranca'; $reint = $false }   # 2.3.8: el ejecutable existe pero no se puede iniciar
     elseif ($t -match '(?i)contener un secreto|nombre de archivo secreto') { $clase = 'secreto-bloqueado'; $reint = $false }
+    # 3.3.2: la guardia de escritura (raiz, perfil, TEMP, Windows, Program Files) es una decision de politica de Multi-IA, no una falla del motor: ni se reintenta ni cambia de motor
+    elseif ($t -match '(?i)Escritura\s+NO\s+permitida') { $clase = 'politica-denegada'; $reint = $false }
     # 1.9.2: modelo-invalido va ANTES de timeout (un mensaje "invalid model ... timed out" no es reintentable) y ya no usa el generico "not recognized" (tambien lo dice PowerShell para un comando).
     elseif ($t -match '(?i)invalid model|unknown model|model.{0,40}(is )?not recognized|not recognized.{0,40}model|modelo.{0,12}(invalido|no reconocido)') { $clase = 'modelo-invalido'; $reint = $false }
     # 2.3.14: agy sin login imprime "Authentication required ... authentication failed or timed out": la auth gana sobre timeout (no reintentable)

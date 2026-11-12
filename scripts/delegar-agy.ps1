@@ -115,7 +115,7 @@ if ($Escribir) {
     if (-not $rc -or -not (Test-Path -LiteralPath $rc.Path -PathType Container)) { Write-Error "La carpeta '$Carpeta' no existe."; exit 1 }
     $carpetaOk = $rc.ProviderPath.TrimEnd('\')
     $motivo = Test-CarpetaEscribible $carpetaOk
-    if ($motivo) { Write-Error $motivo; exit 1 }
+    if ($motivo) { Set-CausaActual -Texto $motivo -Salida 1; Write-Error $motivo; exit 1 }   # 3.3.2: la causa llega al router (politica-denegada: sin fallback)
     if ($Verificar -and (Test-Secreto $Verificar)) { Write-Error 'El comando de verificacion parece contener un secreto.'; exit 2 }
     if ($Verificar -match '[;&|<>`\r\n]') { Write-Error 'El comando de verificacion debe ser UN solo comando simple (sin ; & | < > ni saltos de linea).'; exit 1 }
     $candado = Lock-Carpeta $carpetaOk 'agy'

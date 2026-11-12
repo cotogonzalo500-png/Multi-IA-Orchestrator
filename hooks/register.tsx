@@ -34,7 +34,7 @@ type Datos = {
   ses_deleg?: number; ses_n?: number; ses_costo?: number
   glob?: { ses: number; tin: number; tout: number; hoy: number; semana: number; mes: number; codex: number; agy: number; errores: number; sin_dato: number }
   presup?: { tope: number; hoy: number; aviso: number; cache: number; arena: string }
-  ef?: { dias: number; exitosas: number; exitosas_con_tokens: number; directas_justificadas: number; oportunidades_perdidas: number; fallidas: number; fallas_recuperadas: number; tokens_delegados: number; ahorro_neto_estimado: number; elegibles: number; tasa_delegacion_util: number | null; recomendaciones: string[]; metodologia: string }
+  ef?: { dias: number; exitosas: number; exitosas_con_tokens: number; directas_justificadas: number; oportunidades_perdidas: number; fallidas: number; fallas_recuperadas: number; tareas_con_falla_inicial?: number; tareas_recuperadas?: number; tareas_recuperacion_no_verificable?: number; tareas_sin_resolver?: number; tareas_sin_resolver_historicas?: number; tareas_de_prueba_excluidas?: number; tokens_delegados: number; ahorro_neto_estimado: number; elegibles: number; tasa_delegacion_util: number | null; recomendaciones: string[]; metodologia: string }
   activo?: boolean; modo?: string; calidad?: string; manual?: { codex: { modelo: string; esfuerzo: string }; agy: { modelo: string } }
   dias?: { d: string; codex: number; agy: number; costo: number; n: number }[]
   activas?: number; max?: number; tarjetas: Tarjeta[]; pesada?: { msgs: number; ctx: number } | null
@@ -231,7 +231,7 @@ const corta = (s: string, n: number) => { const x = String(s ?? ''), m = Math.ma
 const RM = '@media (prefers-reduced-motion: reduce){.p,.q{animation:none!important}}'
 
 // Reactor: anillos con luz cian discreta; solo late si hay una ejecución real (y nunca con movimiento reducido).
-const VERSION = '3.3.1'
+const VERSION = '3.3.2'
 // ---------- Vidrio premium 2.0.1: grafito + vidrio gris azulado, acentos cian / violeta / coral / ámbar ----------
 // Fluido: el SVG ocupa el ancho disponible (hasta W) y escala su alto por el viewBox, así no desborda en 320–480 px.
 const SVG0 = (W: number, H: number, inner: string) => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMinYMin meet" style="max-width:' + W + 'px;height:auto;display:block" font-family="system-ui,Segoe UI,sans-serif">' + inner + '</svg>'
@@ -334,6 +334,7 @@ const PIX: Record<string, string[]> = {
   rayo: ['....##.', '...##..', '..##...', '.#####.', '...##..', '..##...', '.##....'],
   moneda: ['..###..', '.#...#.', '#..#..#', '#.###.#', '#..#..#', '.#...#.', '..###..'],
   monedas: ['.#####.', '#.....#', '.#####.', '#.....#', '.#####.', '#.....#', '.#####.'],
+  recuperar: ['..####.', '.#...#.', '#...###', '#....#.', '#......', '.#...#.', '..###..'],   // 3.3.2: flecha circular = tarea recuperada
 }
 const pixMotor = (ia: string) => PIX[ia.startsWith('Claude') ? 'claude' : ia.startsWith('Codex') ? 'codex' : 'agy']
 const hKpis = (n: number, cols: number) => { const rows = Math.max(1, Math.ceil(n / cols)); return rows * H_KPI + (rows - 1) * GAP_KPI }
@@ -929,7 +930,7 @@ export const register: Register = on => {
           { v: String(ef.fallidas), r: 'fallidas', c: T.errorSuave },
           { v: ef.tasa_delegacion_util === null ? '—' : ef.tasa_delegacion_util + '%', r: 'tasa de delegación útil', c: T.cian },
         ]), 'Eficiencia: ' + ef.exitosas + ' exitosas, ' + ef.oportunidades_perdidas + ' oportunidades perdidas, ' + ef.fallidas + ' fallidas, tasa de delegación útil ' + (ef.tasa_delegacion_util === null ? 'sin datos' : ef.tasa_delegacion_util + '%'), anchoU - 24, centro ? 64 : 138)}
-        <Text size="caption" dimColor>{ef.directas_justificadas + ' respuestas directas justificadas · ' + ef.fallas_recuperadas + ' fallas recuperadas por cambio de motor · ' + ef.exitosas_con_tokens + ' de ' + ef.elegibles + ' tareas evaluadas'}</Text>
+        <Text size="caption" dimColor>{ef.directas_justificadas + ' respuestas directas justificadas · ' + ef.fallas_recuperadas + ' intentos fallidos con reintento en otro motor (eventos, no tareas) · ' + ef.exitosas_con_tokens + ' de ' + ef.elegibles + ' tareas evaluadas'}</Text>
         <Text size="caption" color={T.ahorro}>{'Ahorro neto ≈ ' + fmt(Math.max(0, ef.ahorro_neto_estimado)) + ' tokens (estimado) · delegados ' + fmt(ef.tokens_delegados)}</Text>
         {(ef.recomendaciones ?? []).map((r, n) => <Text key={'rc-' + n} size="caption" dimColor>{'• ' + r}</Text>)}
         <Text size="caption" dimColor>{ef.metodologia}</Text>
@@ -1266,7 +1267,11 @@ export const register: Register = on => {
     const kpiCuatro = [
       { v: horas.length ? fmt(sumC) : 'Sin datos', r: 'Consumo de Claude', c: T.violeta, ic: 'chip', d: horas.length ? otros : 'sin datos' },
       { v: ef ? String(ef.exitosas) : 'Sin datos', r: 'Delegaciones terminadas', c: T.okSuave, ic: 'rayo', d: ef ? ef.exitosas_con_tokens + ' con salida · ' + nDel + (nDel === 1 ? ' llamada' : ' llamadas') + ' · terminar no es verificar' : 'sin datos' },
-      { v: ef ? ef.fallidas + ' fallidas' : 'Sin datos', r: 'Fallas y recuperadas', c: T.ambar, ic: 'monedas', d: ef ? ef.fallas_recuperadas + ' recuperadas por cambio de motor' : 'sin datos' },
+      // 3.3.2: TAREAS únicas (no intentos). Recuperada = otro motor terminó y devolvió respuesta (comprobable por tokens + decisión ok); no valida el contenido.
+      // Sin los campos nuevos (datos de una versión vieja) no se inventa nada: «No verificable» con el motivo.
+      ef && typeof ef.tareas_recuperadas === 'number'
+        ? { v: String(ef.tareas_recuperadas), r: 'Recuperación de tareas', c: T.okSuave, ic: 'recuperar', d: ((ef.tareas_recuperacion_no_verificable ?? 0) > 0 ? ef.tareas_recuperacion_no_verificable + ' no verificable · ' : '') + (ef.tareas_sin_resolver ?? 0) + ' sin resolver' +((ef.tareas_sin_resolver_historicas ?? 0) > 0 ? ' (' + ef.tareas_sin_resolver_historicas + ' histórica' + (ef.tareas_sin_resolver_historicas === 1 ? '' : 's') + ')' : '') + ' · tareas, no intentos' }
+        : { v: ef ? 'No verificable' : 'Sin datos', r: 'Recuperación de tareas', c: T.ambar, ic: 'recuperar', d: ef ? 'el registro no trae el detalle por tarea: faltan datos para comprobar recuperaciones' : 'sin datos' },
       { v: sinD(kC[6].v) ? 'Sin datos' : /^-?\d+ %$/.test(kC[6].v) && kC[6].v !== '0 %' ? '≈ ' + kC[6].v + ' est.' : kC[6].v, r: 'Ahorro por chat', c: T.ahorro, ic: 'moneda', d: 'estimación exploratoria, no es cuota ni medición · caché al 10 % · sin base: No determinable' },   // 3.3.1: estimacion exploratoria (cache al 10 %); "No determinable" cuando falta costo o consumo
     ]
     const kpiCols = 2, mitad = centro ? Math.floor(anchoU * 0.49) : anchoU
